@@ -4,7 +4,7 @@
 #include <sstream>
 #include <algorithm>
 
-Tokenizer::Tokenizer(const std::string& bpe_file, const std::string& regex_pattern) {
+Tokenizer::Tokenizer(const std::string& bpe_file) {
     
 }
 

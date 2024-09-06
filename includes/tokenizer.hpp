@@ -8,34 +8,6 @@
  * 
  */
 
-// def o200k_base():
-//     mergeable_ranks = load_tiktoken_bpe(
-//         "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
-//         expected_hash="446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d",
-//     )
-//     special_tokens = {
-//         ENDOFTEXT: 199999,
-//         ENDOFPROMPT: 200018,
-//     }
-//     # This regex could be made more efficient
-//     pat_str = "|".join(
-//         [
-//             r"""[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?""",
-//             r"""[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?""",
-//             r"""\p{N}{1,3}""",
-//             r""" ?[^\s\p{L}\p{N}]+[\r\n/]*""",
-//             r"""\s*[\r\n]+""",
-//             r"""\s+(?!\S)""",
-//             r"""\s+""",
-//         ]
-//     )
-//     return {
-//         "name": "o200k_base",
-//         "pat_str": pat_str,
-//         "mergeable_ranks": mergeable_ranks,
-//         "special_tokens": special_tokens,
-//     }
-
 #ifndef TOKENIZER_HPP
 #define TOKENIZER_HPP
 
@@ -56,6 +28,11 @@ public:
     std::vector<Rank> encode(const std::string& text) const;
     std::string decode(const std::vector<Rank>& tokens) const;
 
+    // Special tokens
+    static constexpr const char* ENDOFTEXT = "ENDOFTEXT";
+    static constexpr const char* ENDOFPROMPT = "ENDOFPROMPT";
+    static const std::unordered_map<std::string, Rank> SPECIAL_TOKENS;
+
 private:
     std::unordered_map<ByteVector, Rank> encoder_;
     std::unordered_map<Rank, ByteVector> decoder_;
@@ -73,14 +50,32 @@ private:
                                              const std::unordered_map<ByteVector, Rank>& ranks);
 };
 
-// GPT-4o (o200k_base) regex pattern
-const std::string Tokenizer::REGEX_PATTERN = 
-    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-    R"(\p{N}{1,3}|)"
-    R"( ?[^\s\p{L}\p{N}]+[\r\n/]*|)"
-    R"(\s*[\r\n]+|)"
-    R"(\s+(?!\S)|)"
-    R"(\s+)";
+// GPT-4o (o200k_base) regex patterns
+const std::vector<std::string> REGEX_PATTERNS = {
+    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?)",
+    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?)",
+    R"(\p{N}{1,3})",
+    R"( ?[^\s\p{L}\p{N}]+[\r\n/]*)",
+    R"(\s*[\r\n]+)",
+    R"(\s+(?!\S))",
+    R"(\s+)"
+};
+
+// Join the patterns with '|'
+const std::string Tokenizer::REGEX_PATTERN =
+    []{
+        std::string joined;
+        for (size_t i = 0; i < REGEX_PATTERNS.size(); ++i) {
+            if (i > 0) joined += "|";
+            joined += REGEX_PATTERNS[i];
+        }
+        return joined;
+    }();
+
+// Define special tokens
+const std::unordered_map<std::string, Tokenizer::Rank> Tokenizer::SPECIAL_TOKENS = {
+    {ENDOFTEXT, 199999},
+    {ENDOFPROMPT, 200018}
+};
 
 #endif // TOKENIZER_HPP
