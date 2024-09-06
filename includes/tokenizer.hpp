@@ -61,7 +61,7 @@ const std::vector<std::string> REGEX_PATTERNS = {
     R"(\s+)"
 };
 
-// Join the patterns with '|'
+// Join the patterns with '|' (or operator)
 const std::string Tokenizer::REGEX_PATTERN =
     []{
         std::string joined;
@@ -72,7 +72,7 @@ const std::string Tokenizer::REGEX_PATTERN =
         return joined;
     }();
 
-// Define special tokens
+// Define special tokens as done in the o200k_base/GPT4-o tokenizer
 const std::unordered_map<std::string, Tokenizer::Rank> Tokenizer::SPECIAL_TOKENS = {
     {ENDOFTEXT, 199999},
     {ENDOFPROMPT, 200018}
