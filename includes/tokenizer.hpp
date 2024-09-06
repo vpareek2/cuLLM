@@ -46,8 +46,7 @@ private:
     std::vector<Rank> bpe_encode(const std::string& token) const;
 
     // BPE merge step
-    static std::vector<Rank> byte_pair_merge(const ByteVector& piece,
-                                             const std::unordered_map<ByteVector, Rank>& ranks);
+    std::vector<Tokenizer::Rank> Tokenizer::byte_pair_merge(const ByteVector& piece, const std::unordered_map<ByteVector, Rank>& ranks) const;
 };
 
 // GPT-4o (o200k_base) regex patterns

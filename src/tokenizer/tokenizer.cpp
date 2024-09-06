@@ -76,14 +76,49 @@ std::string Tokenizer::decode(const std::vector<Rank>& tokens) const {
  */
 
 std::vector<std::string> Tokenizer::regex_split(const std::string& text) const {
-    return {};
+    std::vector<std::string> result;
+    std::sregex_iterator it(text.begin(), text.end(), regex_pattern_);
+    std::sregex_iterator end;
+
+    while (it != end) {
+        result.push_back(it->str());
+        ++it;
+    }
+
+    return result;
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::bpe_encode(const std::string& token) const {
-    return {};
+    ByteVector piece(token.begin(), token.end());
+    return byte_pair_merge(piece, encoder_);
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::byte_pair_merge(const ByteVector& piece,
-                                                        const std::unordered_map<ByteVector, Rank>& ranks) {
-    return {};
+                                                        const std::unordered_map<ByteVector, Rank>& ranks) const {
+    std::vector<Rank> ids;
+    ids.reserve(piece.size());
+
+    // Initialize ids with ranks of individual bytes
+    for (uint8_t byte : piece) {
+        ByteVector single_byte = {byte};
+        ids.push_back(ranks.at(single_byte));
+    }
+
+    bool changes = true;
+    while (changes) {
+        changes = false;
+        for (size_t i = 0; i < ids.size() - 1; ++i) {
+            ByteVector bigram = {static_cast<uint8_t>(ids[i]), static_cast<uint8_t>(ids[i + 1])};
+            auto it = ranks.find(bigram);
+            if (it != ranks.end()) {
+                Rank new_id = it->second;
+                ids[i] = new_id;
+                ids.erase(ids.begin() + i + 1);
+                changes = true;
+                break;
+            }
+        }
+    }
+
+    return ids;
 }
