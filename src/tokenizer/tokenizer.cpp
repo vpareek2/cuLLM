@@ -3,16 +3,23 @@
  * 
  * Tiktoken-style GPT-4o regex (o200k_base) + BPE tokenizer.
  */
-
-#include "tokenizer.hpp"
-
-#include <fstream>
-#include <sstream>
-#include <algorithm>
+#include "includes/tokenizer.hpp"
 
 Tokenizer::Tokenizer() {
-    // Initialize the regex pattern
-    regex_pattern_ = std::regex(REGEX_PATTERN, std::regex::optimize);
+    // Initialize the PCRE2 regex pattern
+    int errorcode;
+    PCRE2_SIZE erroroffset;
+    regex_pattern_ = pcre2_compile(
+        (PCRE2_SPTR)REGEX_PATTERN.c_str(),
+        PCRE2_ZERO_TERMINATED,
+        PCRE2_UTF | PCRE2_UCP,
+        &errorcode,
+        &erroroffset,
+        nullptr
+    );
+    if (regex_pattern_ == nullptr) {
+        throw std::runtime_error("PCRE2 compilation failed");
+    }
 
     // Read and parse the BPE file
     std::ifstream file("../vocab/o200k_base.tiktoken");
@@ -30,21 +37,22 @@ Tokenizer::Tokenizer() {
             continue;
         }
 
-        ByteVector bytes(token.begin(), token.end());
-        encoder_[bytes] = rank;
-        decoder_[rank] = bytes;
+        // Change: Use token directly as ByteString
+        encoder_[token] = rank;
+        decoder_[rank] = token;
     }
 
     // Add special tokens to the encoder and decoder
-    for (const auto& [token, rank] : SPECIAL_TOKENS) {
-        ByteVector bytes(token.begin(), token.end());
-        encoder_[bytes] = rank;
-        decoder_[rank] = bytes;
-    }
+    encoder_[ENDOFTEXT] = ENDOFTEXT_TOKEN;
+    decoder_[ENDOFTEXT_TOKEN] = ENDOFTEXT;
+    encoder_[ENDOFPROMPT] = ENDOFPROMPT_TOKEN;
+    decoder_[ENDOFPROMPT_TOKEN] = ENDOFPROMPT;
 }
 
 Tokenizer::~Tokenizer() {
-    // No dynamic allocations, so nothing to clean up
+    if (regex_pattern_ != nullptr) {
+        pcre2_code_free(regex_pattern_);
+    }
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::encode(const std::string& text) const {
@@ -70,8 +78,8 @@ std::string Tokenizer::decode(const std::vector<Rank>& tokens) const {
     decoded_text.reserve(tokens.size() * 2);
     
     for (const auto& rank : tokens) {
-        const ByteVector& bytes = decoder_.at(rank);
-        decoded_text.append(bytes.begin(), bytes.end());
+        const ByteString& bytes = decoder_.at(rank);
+        decoded_text += bytes; // Change: Directly append ByteString
     }
     
     return decoded_text;
@@ -83,30 +91,35 @@ std::string Tokenizer::decode(const std::vector<Rank>& tokens) const {
 
 std::vector<std::string> Tokenizer::regex_split(const std::string& text) const {
     std::vector<std::string> result;
-    std::sregex_iterator it(text.begin(), text.end(), regex_pattern_);
-    std::sregex_iterator end;
+    pcre2_match_data* match_data = pcre2_match_data_create_from_pattern(regex_pattern_, nullptr);
+    
+    int rc;
+    PCRE2_SIZE offset = 0;
+    PCRE2_SIZE* ovector;
 
-    while (it != end) {
-        result.push_back(it->str());
-        ++it;
+    while ((rc = pcre2_match(regex_pattern_, (PCRE2_SPTR)text.c_str(), text.length(), offset, 0, match_data, nullptr)) > 0) {
+        ovector = pcre2_get_ovector_pointer(match_data);
+        result.push_back(text.substr(ovector[0], ovector[1] - ovector[0]));
+        offset = ovector[1];
     }
 
+    pcre2_match_data_free(match_data);
     return result;
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::bpe_encode(const std::string& token) const {
-    ByteVector piece(token.begin(), token.end());
-    return byte_pair_merge(piece, encoder_);
+    // Change: Use token directly as ByteString
+    return byte_pair_merge(token, encoder_);
 }
 
-std::vector<Tokenizer::Rank> Tokenizer::byte_pair_merge(const ByteVector& piece,
-                                                        const std::unordered_map<ByteVector, Rank>& ranks) const {
+std::vector<Tokenizer::Rank> Tokenizer::byte_pair_merge(const ByteString& piece,
+                                                        const std::unordered_map<ByteString, Rank>& ranks) const {
     std::vector<Rank> ids;
     ids.reserve(piece.size());
 
     // Initialize ids with ranks of individual bytes
-    for (uint8_t byte : piece) {
-        ByteVector single_byte = {byte};
+    for (unsigned char byte : piece) {
+        ByteString single_byte(1, byte);
         ids.push_back(ranks.at(single_byte));
     }
 
@@ -114,7 +127,10 @@ std::vector<Tokenizer::Rank> Tokenizer::byte_pair_merge(const ByteVector& piece,
     while (changes) {
         changes = false;
         for (size_t i = 0; i < ids.size() - 1; ++i) {
-            ByteVector bigram = {static_cast<uint8_t>(ids[i]), static_cast<uint8_t>(ids[i + 1])};
+            // Change: Construct ByteString from two characters
+            ByteString bigram;
+            bigram += static_cast<char>(ids[i]);
+            bigram += static_cast<char>(ids[i + 1]);
             auto it = ranks.find(bigram);
             if (it != ranks.end()) {
                 Rank new_id = it->second;
