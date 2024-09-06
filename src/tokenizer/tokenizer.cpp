@@ -1,3 +1,9 @@
+/**
+ * This file contains the implementation of the tokenizer class.
+ * 
+ * Tiktoken-style GPT-4o regex (o200k_base) + BPE tokenizer.
+ */
+
 #include "tokenizer.hpp"
 
 #include <fstream>
