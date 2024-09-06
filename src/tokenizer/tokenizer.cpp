@@ -4,14 +4,14 @@
 #include <sstream>
 #include <algorithm>
 
-Tokenizer::Tokenizer(const std::string& bpe_file) {
+Tokenizer::Tokenizer() {
     // Initialize the regex pattern
     regex_pattern_ = std::regex(REGEX_PATTERN, std::regex::optimize);
 
     // Read and parse the BPE file
-    std::ifstream file(bpe_file);
+    std::ifstream file("../vocab/o200k_base.tiktoken");
     if (!file.is_open()) {
-        throw std::runtime_error("Unable to open BPE file: " + bpe_file);
+        throw std::runtime_error("Unable to open BPE file: ../vocab/o200k_base.tiktoken");
     }
 
     std::string line;

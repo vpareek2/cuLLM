@@ -21,7 +21,7 @@ public:
     using Rank = uint32_t;
     using ByteVector = std::vector<uint8_t>;
 
-    Tokenizer(const std::string& bpe_file);
+    Tokenizer();
     ~Tokenizer();
 
     // Core functionality
