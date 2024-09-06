@@ -2,8 +2,9 @@
  * This file contains the tokenizer class.
  * 
  * It is based on the tiktoken tokenizer, used for LLaMa 3.1. The paper quotes "We use a vocabulary with 128K tokens. Our token 
- * vocabulary combines 100K tokens from the tiktoken3 tokenizer with 28K additional tokens to better support non-English languages". Meta did not release
- * any implementation details on the 28K additional tokens, so I implemented the base Tiktoken-style GPT-4o regex + BPE tokenizer below.
+ * vocabulary combines 100K tokens from the tiktoken3 tokenizer with 28K additional tokens to better support non-English languages". 
+ * Meta did not release any implementation details on the 28K additional tokens, so I implemented the base 
+ * Tiktoken-style GPT-4o regex (o200k_base) + BPE tokenizer below.
  * 
  */
 
