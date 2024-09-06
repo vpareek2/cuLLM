@@ -5,11 +5,11 @@
 #include <algorithm>
 
 Tokenizer::Tokenizer(const std::string& bpe_file, const std::string& regex_pattern) {
-    // Implementation to be added
+    
 }
 
 Tokenizer::~Tokenizer() {
-    // Implementation to be added
+    
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::encode(const std::string& text) const {

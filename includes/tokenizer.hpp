@@ -49,7 +49,7 @@ public:
     using Rank = uint32_t;
     using ByteVector = std::vector<uint8_t>;
 
-    Tokenizer(const std::string& bpe_file, const std::string& regex_pattern);
+    Tokenizer(const std::string& bpe_file);
     ~Tokenizer();
 
     // Core functionality
@@ -61,13 +61,26 @@ private:
     std::unordered_map<Rank, ByteVector> decoder_;
     std::regex regex_pattern_;
 
+    // Regex pattern definition
+    static const std::string REGEX_PATTERN;
+
     // Helper methods
     std::vector<std::string> regex_split(const std::string& text) const;
     std::vector<Rank> bpe_encode(const std::string& token) const;
-    
+
     // BPE merge step
     static std::vector<Rank> byte_pair_merge(const ByteVector& piece,
                                              const std::unordered_map<ByteVector, Rank>& ranks);
 };
+
+// GPT-4o (o200k_base) regex pattern
+const std::string Tokenizer::REGEX_PATTERN = 
+    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
+    R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
+    R"(\p{N}{1,3}|)"
+    R"( ?[^\s\p{L}\p{N}]+[\r\n/]*|)"
+    R"(\s*[\r\n]+|)"
+    R"(\s+(?!\S)|)"
+    R"(\s+)";
 
 #endif // TOKENIZER_HPP
