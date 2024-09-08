@@ -12,16 +12,19 @@
 
 namespace {
 
-// Base64 decoding table
-constexpr std::string_view base64_chars = 
+const std::string base64_chars = 
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
 
-inline bool is_base64(unsigned char c) {
-    return (std::isalnum(c) || (c == '+') || (c == '/'));
+// Add this function before base64_decode
+bool is_base64(unsigned char c) {
+    return (isalnum(c) || (c == '+') || (c == '/'));
 }
 
+// Base64 decoding function
+// This function decodes a base64 encoded string to its original form
+// It uses a lookup table and bitwise operations to convert groups of 4 base64 characters into 3 bytes
 std::string base64_decode(std::string_view encoded_string) {
     int in_len = encoded_string.size();
     int i = 0;
@@ -63,6 +66,17 @@ std::string base64_decode(std::string_view encoded_string) {
 
     return ret;
 }
+
+// Move VectorHasher here if it's only used internally
+struct VectorHasher {
+    size_t operator()(const std::vector<unsigned int>& v) const {
+        size_t seed = v.size();
+        for (auto& i : v) {
+            seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
 
 } // anonymous namespace
 
@@ -133,6 +147,7 @@ std::vector<Tokenizer::Rank> Tokenizer::encode(const std::string& text, const st
 
 std::vector<Tokenizer::Rank> Tokenizer::encode_ordinary(const std::string& text) const {
     std::vector<Rank> ret;
+    ret.reserve(text.length());  // Reserve space based on input length
     for (const auto& piece : regex_split(text)) {
         auto it = encoder_.find(piece);
         if (it != encoder_.end()) {
@@ -147,6 +162,7 @@ std::vector<Tokenizer::Rank> Tokenizer::encode_ordinary(const std::string& text)
 
 std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     std::vector<Rank> ret;
+    ret.reserve(text.length());  // Reserve space based on input length
     size_t start = 0;
     size_t last_piece_token_len = 0;
 
@@ -183,6 +199,31 @@ std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const s
     return {ret, last_piece_token_len};
 }
 
+// Helper function for encode_with_unstable
+bool is_token_all_space(const Tokenizer::ByteString& token) {
+    return std::all_of(token.begin(), token.end(), [](unsigned char c) {
+        return c == ' ' || c == '\n' || c == '\t';
+    });
+}
+
+// Helper function for encode_with_unstable
+std::vector<Tokenizer::Rank> find_single_token_completions(
+    const std::vector<Tokenizer::ByteString>& sorted_token_bytes,
+    const std::unordered_map<Tokenizer::ByteString, Tokenizer::Rank>& encoder,
+    const std::string& unstable_str) {
+    
+    std::vector<Tokenizer::Rank> completions;
+    auto it = std::lower_bound(sorted_token_bytes.begin(), sorted_token_bytes.end(), unstable_str,
+        [](const std::string& a, const std::string& b) {
+            return a < b;
+        });
+    while (it != sorted_token_bytes.end() && it->substr(0, unstable_str.length()) == unstable_str) {
+        completions.push_back(encoder.at(*it));
+        ++it;
+    }
+    return completions;
+}
+
 std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer::Rank>>> 
 Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     auto [tokens, last_piece_token_len] = encode_native(text, allowed_special);
@@ -191,18 +232,9 @@ Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_se
     }
 
     // Increase last_piece_token_len for unstable regex splits
-    auto token_is_all_space = [this](Rank token) {
-        const auto& token_bytes = decoder_.at(token);
-        return std::all_of(token_bytes.begin(), token_bytes.end(), [](unsigned char c) {
-            return c == ' ' || c == '\n' || c == '\t';
-        });
-    };
-
-    if (last_piece_token_len > 0 && token_is_all_space(tokens[tokens.size() - last_piece_token_len])) {
-        while (last_piece_token_len < tokens.size() && 
-               token_is_all_space(tokens[tokens.size() - last_piece_token_len - 1])) {
-            last_piece_token_len++;
-        }
+    while (last_piece_token_len < tokens.size() && 
+           is_token_all_space(decoder_.at(tokens[tokens.size() - last_piece_token_len - 1]))) {
+        last_piece_token_len++;
     }
 
     std::vector<unsigned char> unstable_bytes;
@@ -219,13 +251,9 @@ Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_se
 
     // Find single tokens that start with unstable_bytes
     std::string unstable_str(unstable_bytes.begin(), unstable_bytes.end());
-    auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), unstable_str,
-        [](const std::string& a, const std::string& b) {
-            return a < b;
-        });
-    while (it != sorted_token_bytes_.end() && it->substr(0, unstable_str.length()) == unstable_str) {
-        completions.insert({encoder_.at(*it)});
-        ++it;
+    auto single_token_completions = find_single_token_completions(sorted_token_bytes_, encoder_, unstable_str);
+    for (auto rank : single_token_completions) {
+        completions.insert({rank});
     }
 
     // Handle more complex cases
@@ -283,10 +311,14 @@ Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_se
 Tokenizer::ByteString Tokenizer::decode(const std::vector<Rank>& tokens) const {
     ByteString result;
     for (const auto& token : tokens) {
-        if (decoder_.find(token) != decoder_.end()) {
-            result += decoder_.at(token);
-        } else if (special_tokens_decoder_.find(token) != special_tokens_decoder_.end()) {
-            result += special_tokens_decoder_.at(token);
+        auto it = decoder_.find(token);
+        if (it != decoder_.end()) {
+            result += it->second;
+        } else {
+            auto special_it = special_tokens_decoder_.find(token);
+            if (special_it != special_tokens_decoder_.end()) {
+                result += special_it->second;
+            }
         }
     }
     return result;
@@ -336,8 +368,8 @@ std::vector<Tokenizer::ByteString> Tokenizer::regex_split(const std::string& tex
     std::unique_ptr<icu::RegexMatcher> matcher(regex_pattern_->matcher(utext, status));
 
     if (U_FAILURE(status)) {
-        // Handle error
-        return result;
+        // Log error or throw exception
+        throw std::runtime_error("Failed to create regex matcher: " + std::string(u_errorName(status)));
     }
 
     while (matcher->find()) {

@@ -9,6 +9,16 @@
 #include <memory>
 #include <optional>
 
+struct VectorHasher {
+    size_t operator()(const std::vector<unsigned int>& v) const {
+        size_t seed = v.size();
+        for (auto& i : v) {
+            seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
+
 class Tokenizer {
 public:
     using Rank = uint32_t;
@@ -61,6 +71,13 @@ private:
 
     // Additional methods
     std::vector<ByteString> byte_pair_split(const ByteString& piece) const;
+
+    // Helper methods
+    static bool is_token_all_space(const ByteString& token);
+    static std::vector<Rank> find_single_token_completions(
+        const std::vector<ByteString>& sorted_token_bytes,
+        const std::unordered_map<ByteString, Rank>& encoder,
+        const std::string& unstable_str);
 };
 
 #endif // TOKENIZER_HPP

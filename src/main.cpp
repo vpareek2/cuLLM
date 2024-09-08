@@ -1,19 +1,14 @@
 #include "tokenizer.hpp"
 #include <iostream>
-#include <string>
-#include <vector>
-#include <unordered_set>
 
 int main() {
-    // Initialize the tokenizer with the encoder file
-    Tokenizer tokenizer("path/to/encoder_file.txt");
+    Tokenizer tokenizer("tokenizer/vocab/o200k_base.tiktoken");
 
     // Example text to tokenize
-    std::string text = "Hello, world! This is a test of the tokenizer.";
+    std::string text = "Hello, world! This is a test of my the tokenizer.";
 
     // Encode the text
-    std::unordered_set<std::string> allowed_special;
-    std::vector<Tokenizer::Rank> tokens = tokenizer.encode(text, allowed_special);
+    std::vector<Tokenizer::Rank> tokens = tokenizer.encode(text);
 
     // Print the tokens
     std::cout << "Encoded tokens:" << std::endl;
@@ -23,29 +18,26 @@ int main() {
     std::cout << std::endl;
 
     // Decode the tokens back to text
-    Tokenizer::ByteString decoded_text = tokenizer.decode(tokens);
+    std::string decoded_text = tokenizer.decode(tokens);
 
     // Print the decoded text
     std::cout << "Decoded text: " << decoded_text << std::endl;
 
-    // Example of single token operations
-    Tokenizer::ByteString single_piece = "example";
-    Tokenizer::Rank single_token = tokenizer.encode_single_token(single_piece);
-    std::cout << "Single token for 'example': " << single_token << std::endl;
-
-    std::vector<Tokenizer::Rank> single_piece_tokens = tokenizer.encode_single_piece(single_piece);
-    std::cout << "Tokens for 'example': ";
-    for (const auto& token : single_piece_tokens) {
-        std::cout << token << " ";
+    // Example usage of encode_single_token and decode_single_token_bytes
+    std::string single_piece = "Hello";
+    std::optional<Tokenizer::Rank> single_token = tokenizer.encode_single_token(single_piece);
+    if (single_token) {
+        std::cout << "Single token: " << *single_token << std::endl;
+    } else {
+        std::cout << "Failed to encode single token" << std::endl;
     }
-    std::cout << std::endl;
 
-    Tokenizer::ByteString decoded_single_token = tokenizer.decode_single_token_bytes(single_token);
-    std::cout << "Decoded single token: " << decoded_single_token << std::endl;
-
-    // Get all token byte values
-    std::vector<Tokenizer::ByteString> all_tokens = tokenizer.token_byte_values();
-    std::cout << "Total number of tokens: " << all_tokens.size() << std::endl;
+    std::optional<Tokenizer::ByteString> decoded_single_token = tokenizer.decode_single_token_bytes(*single_token);
+    if (decoded_single_token) {
+        std::cout << "Decoded single token: " << *decoded_single_token << std::endl;
+    } else {
+        std::cout << "Failed to decode single token" << std::endl;
+    }
 
     return 0;
 }
