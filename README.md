@@ -2,6 +2,7 @@
 
 Work in progress Llama 3.1 implementation in pure cuda.
 
+Finished the tokenizer in cpp. It's a GPT-4o (o200k_base) tokenizer. LLaMA 3.1 uses a mix of the tiktoken3 (GPT-4o) tokenizer and another one that is not specified for other languages. I implemented the GPT-4o tokenizer which is regex + byte pair encoding. It is also using the the vocabulary provided by OpenAI for Tiktoken.
 
 1. Input Embedding Layer
    • Converts input tokens to dense vector representations
