@@ -27,10 +27,6 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
         decoder_[rank] = token;
     }
 
-    // Initialize special tokens
-    special_tokens_encoder_["<|endoftext|>"] = 50256;
-    special_tokens_decoder_[50256] = "<|endoftext|>";
-
     // Initialize sorted_token_bytes_
     sorted_token_bytes_.reserve(encoder_.size());
     for (const auto& pair : encoder_) {
@@ -38,7 +34,7 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
     }
     std::sort(sorted_token_bytes_.begin(), sorted_token_bytes_.end());
 
-    // Initialize ICU regex patterns
+    // Initialize ICU regex patterns and special tokens
     initialize_regex_patterns();
 }
 
@@ -354,11 +350,20 @@ void Tokenizer::initialize_regex_patterns() {
     );
     regex_pattern_ = icu::RegexPattern::compile(pattern, 0, status);
     if (U_FAILURE(status)) {
-        // Handle error
+        throw std::runtime_error("Failed to compile main regex pattern");
+    }
+
+    // Initialize special tokens
+    special_tokens_encoder_["<|endoftext|>"] = 199999;
+    special_tokens_encoder_["<|endofprompt|>"] = 200018;
+    
+    // Populate special_tokens_decoder_ with the reverse mapping
+    for (const auto& pair : special_tokens_encoder_) {
+        special_tokens_decoder_[pair.second] = pair.first;
     }
 
     // Initialize special_regex_pattern_
-    std::string special_pattern = ""; // Construct this based on your special tokens
+    std::string special_pattern = "";
     for (const auto& token : special_tokens_encoder_) {
         if (!special_pattern.empty()) {
             special_pattern += "|";
