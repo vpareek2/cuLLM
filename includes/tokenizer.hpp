@@ -8,6 +8,20 @@
 #include <unicode/regex.h>
 #include <memory>
 #include <optional>
+#include <functional>
+
+namespace std {
+    template<>
+    struct hash<vector<unsigned int>> {
+        size_t operator()(const vector<unsigned int>& v) const {
+            size_t seed = v.size();
+            for(auto& i : v) {
+                seed ^= hash<unsigned int>{}(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            }
+            return seed;
+        }
+    };
+}
 
 struct VectorHasher {
     size_t operator()(const std::vector<unsigned int>& v) const {
@@ -74,10 +88,9 @@ private:
 
     // Helper methods
     static bool is_token_all_space(const ByteString& token);
-    static std::vector<Rank> find_single_token_completions(
+    std::vector<Rank> find_single_token_completions(
         const std::vector<ByteString>& sorted_token_bytes,
-        const std::unordered_map<ByteString, Rank>& encoder,
-        const std::string& unstable_str);
+        const std::string& unstable_str) const;
 };
 
 #endif // TOKENIZER_HPP

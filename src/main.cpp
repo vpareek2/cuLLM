@@ -2,7 +2,18 @@
 #include <iostream>
 
 int main() {
-    Tokenizer tokenizer("tokenizer/vocab/o200k_base.tiktoken");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
+    
+    try {
+        auto encoded = tokenizer.encode("Hello, World!");
+        std::cout << "Encoded: ";
+        for (auto token : encoded) {
+            std::cout << token << " ";
+        }
+        std::cout << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
 
     // Example text to tokenize
     std::string text = "Hello, world! This is a test of my the tokenizer.";

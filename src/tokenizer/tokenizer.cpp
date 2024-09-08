@@ -79,7 +79,6 @@ struct VectorHasher {
 };
 
 } // anonymous namespace
-
 Tokenizer::Tokenizer(const std::string& encoder_file) {
     // Load encoder from file
     std::ifstream file(encoder_file);
@@ -93,6 +92,14 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
         encoder_[decoded_token] = rank;
         decoder_[rank] = decoded_token;
         rank++;
+    }
+
+    std::cout << "Loaded " << encoder_.size() << " tokens into encoder." << std::endl;
+    std::cout << "First few entries:" << std::endl;
+    int count = 0;
+    for (const auto& entry : encoder_) {
+        std::cout << "  " << entry.first << " : " << entry.second << std::endl;
+        if (++count >= 5) break;
     }
 
     // Initialize sorted_token_bytes_
@@ -122,7 +129,7 @@ void Tokenizer::initialize_special_tokens() {
 void Tokenizer::initialize_regex_patterns() {
     UErrorCode status = U_ZERO_ERROR;
     icu::UnicodeString pattern = icu::UnicodeString::fromUTF8(REGEX_PATTERN);
-    regex_pattern_ = std::make_unique<icu::RegexPattern>(icu::RegexPattern::compile(pattern, 0, status));
+    regex_pattern_.reset(icu::RegexPattern::compile(pattern, 0, status));
     if (U_FAILURE(status)) {
         throw std::runtime_error("Failed to compile main regex pattern");
     }
@@ -135,7 +142,7 @@ void Tokenizer::initialize_regex_patterns() {
         }
         special_pattern += std::regex_replace(token.first, std::regex("[\\^$.*+?()\\[\\]{}\\\\|]"), "\\$&");
     }
-    special_regex_pattern_ = std::make_unique<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(special_pattern), 0, status));
+    special_regex_pattern_.reset(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(special_pattern), 0, status));
     if (U_FAILURE(status)) {
         throw std::runtime_error("Failed to compile special regex pattern");
     }
@@ -199,26 +206,23 @@ std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const s
     return {ret, last_piece_token_len};
 }
 
-// Helper function for encode_with_unstable
-bool is_token_all_space(const Tokenizer::ByteString& token) {
+bool Tokenizer::is_token_all_space(const ByteString& token) {
     return std::all_of(token.begin(), token.end(), [](unsigned char c) {
         return c == ' ' || c == '\n' || c == '\t';
     });
 }
 
-// Helper function for encode_with_unstable
-std::vector<Tokenizer::Rank> find_single_token_completions(
-    const std::vector<Tokenizer::ByteString>& sorted_token_bytes,
-    const std::unordered_map<Tokenizer::ByteString, Tokenizer::Rank>& encoder,
-    const std::string& unstable_str) {
+std::vector<Tokenizer::Rank> Tokenizer::find_single_token_completions(
+    const std::vector<ByteString>& sorted_token_bytes,
+    const std::string& unstable_str) const {
     
-    std::vector<Tokenizer::Rank> completions;
+    std::vector<Rank> completions;
     auto it = std::lower_bound(sorted_token_bytes.begin(), sorted_token_bytes.end(), unstable_str,
         [](const std::string& a, const std::string& b) {
             return a < b;
         });
     while (it != sorted_token_bytes.end() && it->substr(0, unstable_str.length()) == unstable_str) {
-        completions.push_back(encoder.at(*it));
+        completions.push_back(encoder_.at(*it));
         ++it;
     }
     return completions;
@@ -228,7 +232,7 @@ std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer
 Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     auto [tokens, last_piece_token_len] = encode_native(text, allowed_special);
     if (last_piece_token_len == 0) {
-        return {tokens, {}};
+        return {tokens, std::unordered_set<std::vector<Rank>>()};
     }
 
     // Increase last_piece_token_len for unstable regex splits
@@ -251,7 +255,7 @@ Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_se
 
     // Find single tokens that start with unstable_bytes
     std::string unstable_str(unstable_bytes.begin(), unstable_bytes.end());
-    auto single_token_completions = find_single_token_completions(sorted_token_bytes_, encoder_, unstable_str);
+    auto single_token_completions = find_single_token_completions(sorted_token_bytes_, unstable_str);
     for (auto rank : single_token_completions) {
         completions.insert({rank});
     }
@@ -443,6 +447,14 @@ std::vector<Tokenizer::Rank> Tokenizer::byte_pair_encode(const ByteString& piece
         ByteString token = piece.substr(merged[i].first, merged[i + 1].first - merged[i].first);
         auto it = encoder_.find(token);
         if (it == encoder_.end()) {
+            std::cerr << "Error: Token not found in encoder: " << token << std::endl;
+            std::cerr << "Encoder size: " << encoder_.size() << std::endl;
+            std::cerr << "First few entries in encoder:" << std::endl;
+            int count = 0;
+            for (const auto& entry : encoder_) {
+                std::cerr << "  " << entry.first << " : " << entry.second << std::endl;
+                if (++count >= 5) break;
+            }
             throw std::runtime_error("Token not found in encoder: " + token);
         }
         result.push_back(it->second);
