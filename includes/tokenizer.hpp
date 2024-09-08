@@ -14,46 +14,53 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <pcre2.h>
+#include <unordered_set>
+#include <unicode/regex.h>
 
 class Tokenizer {
 public:
     using Rank = uint32_t;
     using ByteString = std::string;
 
-    Tokenizer();
+    Tokenizer(const std::string& encoder_file);
     ~Tokenizer();
 
     // Core functionality
-    std::vector<Rank> encode(const std::string& text) const;
-    std::string decode(const std::vector<Rank>& tokens) const;
+    std::vector<Rank> encode(const std::string& text, const std::unordered_set<std::string>& allowed_special = {}) const;
+    ByteString decode(const std::vector<Rank>& tokens) const;
 
-    // Special tokens
-    static constexpr const char* ENDOFTEXT = "ENDOFTEXT";
-    static constexpr const char* ENDOFPROMPT = "ENDOFPROMPT";
-    static constexpr Rank ENDOFTEXT_TOKEN = 199999;
-    static constexpr Rank ENDOFPROMPT_TOKEN = 200018;
+    // Single token operations
+    Rank encode_single_token(const ByteString& piece) const;
+    std::vector<Rank> encode_single_piece(const ByteString& piece) const;
+    ByteString decode_single_token_bytes(Rank token) const;
+
+    // Miscellaneous
+    std::vector<ByteString> token_byte_values() const;
 
 private:
     std::unordered_map<ByteString, Rank> encoder_;
+    std::unordered_map<std::string, Rank> special_tokens_encoder_;
     std::unordered_map<Rank, ByteString> decoder_;
-    pcre2_code* regex_pattern_;
+    std::unordered_map<Rank, ByteString> special_tokens_decoder_;
+    std::vector<ByteString> sorted_token_bytes_;
 
-    inline static const std::string REGEX_PATTERN =
-        R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-        R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-        R"(\p{N}{1,3}|)"
-        R"( ?[^\s\p{L}\p{N}]+[\r\n/]*|)"
-        R"(\s*[\r\n]+|)"
-        R"(\s+(?!\S)|)"
-        R"(\s+)";
+    // ICU regex patterns
+    icu::RegexPattern* regex_pattern_;
+    icu::RegexPattern* special_regex_pattern_;
 
     // Helper methods
-    std::vector<std::string> regex_split(const std::string& text) const;
-    std::vector<Rank> bpe_encode(const std::string& token) const;
+    std::vector<ByteString> regex_split(const std::string& text) const;
+    std::vector<Rank> byte_pair_encode(const ByteString& piece) const;
+    std::vector<ByteString> byte_pair_split(const ByteString& piece) const;
+    std::vector<std::pair<size_t, Rank>> _byte_pair_merge(const ByteString& piece) const;
 
-    // BPE merge step
-    std::vector<Rank> byte_pair_merge(const ByteString& piece, const std::unordered_map<ByteString, Rank>& ranks) const;
+    // Encoding methods
+    std::vector<Rank> _encode_ordinary_native(const std::string& text) const;
+    std::pair<std::vector<Rank>, size_t> _encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
+    std::pair<std::vector<Rank>, std::unordered_set<std::vector<Rank>>> _encode_unstable_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
+
+    // Initialize ICU regex patterns
+    void initialize_regex_patterns();
 };
 
 #endif // TOKENIZER_HPP
