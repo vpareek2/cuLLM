@@ -1,13 +1,3 @@
-/**
- * This file contains the tokenizer class.
- * 
- * It is based on the tiktoken tokenizer, used for LLaMa 3.1. The paper quotes "We use a vocabulary with 128K tokens. Our token 
- * vocabulary combines 100K tokens from the tiktoken3 tokenizer with 28K additional tokens to better support non-English languages". 
- * Meta did not release any implementation details on the 28K additional tokens, so I implemented the base 
- * Tiktoken-style GPT-4o regex (o200k_base) + BPE tokenizer below.
- * 
- */
-
 #ifndef TOKENIZER_HPP
 #define TOKENIZER_HPP
 
@@ -16,6 +6,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <unicode/regex.h>
+#include <memory>
+#include <optional>
 
 class Tokenizer {
 public:
@@ -29,10 +21,14 @@ public:
     std::vector<Rank> encode(const std::string& text, const std::unordered_set<std::string>& allowed_special = {}) const;
     ByteString decode(const std::vector<Rank>& tokens) const;
 
+    // Encoding methods
+    std::vector<Rank> encode_ordinary(const std::string& text) const;
+    std::pair<std::vector<Rank>, std::unordered_set<std::vector<Rank>>> encode_with_unstable(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
+
     // Single token operations
-    Rank encode_single_token(const ByteString& piece) const;
+    std::optional<Rank> encode_single_token(const ByteString& piece) const;
     std::vector<Rank> encode_single_piece(const ByteString& piece) const;
-    ByteString decode_single_token_bytes(Rank token) const;
+    std::optional<ByteString> decode_single_token_bytes(Rank token) const;
 
     // Miscellaneous
     std::vector<ByteString> token_byte_values() const;
@@ -45,22 +41,26 @@ private:
     std::vector<ByteString> sorted_token_bytes_;
 
     // ICU regex patterns
-    icu::RegexPattern* regex_pattern_;
-    icu::RegexPattern* special_regex_pattern_;
+    std::unique_ptr<icu::RegexPattern> regex_pattern_;
+    std::unique_ptr<icu::RegexPattern> special_regex_pattern_;
 
     // Helper methods
     std::vector<ByteString> regex_split(const std::string& text) const;
     std::vector<Rank> byte_pair_encode(const ByteString& piece) const;
-    std::vector<ByteString> byte_pair_split(const ByteString& piece) const;
-    std::vector<std::pair<size_t, Rank>> _byte_pair_merge(const ByteString& piece) const;
+    std::vector<std::pair<size_t, Rank>> byte_pair_merge(const ByteString& piece) const;
 
-    // Encoding methods
-    std::vector<Rank> _encode_ordinary_native(const std::string& text) const;
-    std::pair<std::vector<Rank>, size_t> _encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
-    std::pair<std::vector<Rank>, std::unordered_set<std::vector<Rank>>> _encode_unstable_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
+    // New encoding methods
+    std::pair<std::vector<Rank>, size_t> encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
 
-    // Initialize ICU regex patterns
+    // Initialize ICU regex patterns and special tokens
     void initialize_regex_patterns();
+    void initialize_special_tokens();
+
+    // Constant GPT-4o REGEX pattern
+    static constexpr const char* REGEX_PATTERN = R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+)";
+
+    // Additional methods
+    std::vector<ByteString> byte_pair_split(const ByteString& piece) const;
 };
 
 #endif // TOKENIZER_HPP

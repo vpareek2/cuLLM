@@ -1,9 +1,3 @@
-/**
- * This file contains the implementation of the tokenizer class.
- * 
- * Tiktoken-style GPT-4o regex (o200k_base) + BPE tokenizer.
- */
-
 #include "tokenizer.hpp"
 #include <fstream>
 #include <sstream>
@@ -13,18 +7,78 @@
 #include <string>
 #include <unicode/regex.h>
 #include <cassert>
+#include <iostream>
+#include <optional>
+
+namespace {
+
+// Base64 decoding table
+constexpr std::string_view base64_chars = 
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789+/";
+
+inline bool is_base64(unsigned char c) {
+    return (std::isalnum(c) || (c == '+') || (c == '/'));
+}
+
+std::string base64_decode(std::string_view encoded_string) {
+    int in_len = encoded_string.size();
+    int i = 0;
+    int j = 0;
+    int in_ = 0;
+    std::array<unsigned char, 4> char_array_4;
+    std::array<unsigned char, 3> char_array_3;
+    std::string ret;
+
+    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_])) {
+        char_array_4[i++] = encoded_string[in_]; in_++;
+        if (i == 4) {
+            for (i = 0; i < 4; i++)
+                char_array_4[i] = base64_chars.find(char_array_4[i]);
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; (i < 3); i++)
+                ret += char_array_3[i];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 4; j++)
+            char_array_4[j] = 0;
+
+        for (j = 0; j < 4; j++)
+            char_array_4[j] = base64_chars.find(char_array_4[j]);
+
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+        for (j = 0; (j < i - 1); j++) ret += char_array_3[j];
+    }
+
+    return ret;
+}
+
+} // anonymous namespace
 
 Tokenizer::Tokenizer(const std::string& encoder_file) {
     // Load encoder from file
     std::ifstream file(encoder_file);
     std::string line;
+    Rank rank = 0;  // Start rank from 0
     while (std::getline(file, line)) {
         std::istringstream iss(line);
         std::string token;
-        Rank rank;
-        if (!(iss >> token >> rank)) { break; }
-        encoder_[token] = rank;
-        decoder_[rank] = token;
+        if (!(iss >> token)) { break; }
+        ByteString decoded_token = base64_decode(token);
+        encoder_[decoded_token] = rank;
+        decoder_[rank] = decoded_token;
+        rank++;
     }
 
     // Initialize sorted_token_bytes_
@@ -36,18 +90,48 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
 
     // Initialize ICU regex patterns and special tokens
     initialize_regex_patterns();
+    initialize_special_tokens();
 }
 
-Tokenizer::~Tokenizer() {
-    delete regex_pattern_;
-    delete special_regex_pattern_;
+Tokenizer::~Tokenizer() = default;
+
+void Tokenizer::initialize_special_tokens() {
+    special_tokens_encoder_["<|endoftext|>"] = 199999;
+    special_tokens_encoder_["<|endofprompt|>"] = 200018;
+    
+    // Populate special_tokens_decoder_ with the reverse mapping
+    for (const auto& pair : special_tokens_encoder_) {
+        special_tokens_decoder_[pair.second] = pair.first;
+    }
+}
+
+void Tokenizer::initialize_regex_patterns() {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::UnicodeString pattern = icu::UnicodeString::fromUTF8(REGEX_PATTERN);
+    regex_pattern_ = std::make_unique<icu::RegexPattern>(icu::RegexPattern::compile(pattern, 0, status));
+    if (U_FAILURE(status)) {
+        throw std::runtime_error("Failed to compile main regex pattern");
+    }
+
+    // Initialize special_regex_pattern_
+    std::string special_pattern;
+    for (const auto& token : special_tokens_encoder_) {
+        if (!special_pattern.empty()) {
+            special_pattern += "|";
+        }
+        special_pattern += std::regex_replace(token.first, std::regex("[\\^$.*+?()\\[\\]{}\\\\|]"), "\\$&");
+    }
+    special_regex_pattern_ = std::make_unique<icu::RegexPattern>(icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(special_pattern), 0, status));
+    if (U_FAILURE(status)) {
+        throw std::runtime_error("Failed to compile special regex pattern");
+    }
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::encode(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
-    return _encode_native(text, allowed_special).first;
+    return encode_native(text, allowed_special).first;
 }
 
-std::vector<Tokenizer::Rank> Tokenizer::_encode_ordinary_native(const std::string& text) const {
+std::vector<Tokenizer::Rank> Tokenizer::encode_ordinary(const std::string& text) const {
     std::vector<Rank> ret;
     for (const auto& piece : regex_split(text)) {
         auto it = encoder_.find(piece);
@@ -61,7 +145,7 @@ std::vector<Tokenizer::Rank> Tokenizer::_encode_ordinary_native(const std::strin
     return ret;
 }
 
-std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::_encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
+std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     std::vector<Rank> ret;
     size_t start = 0;
     size_t last_piece_token_len = 0;
@@ -81,7 +165,7 @@ std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::_encode_native(const 
 
         // Process the text up to the next special token (or end of string)
         std::string::size_type end = (next_special_start != std::string::npos) ? next_special_start : text.length();
-        auto ordinary_tokens = _encode_ordinary_native(text.substr(start, end - start));
+        auto ordinary_tokens = encode_ordinary(text.substr(start, end - start));
         ret.insert(ret.end(), ordinary_tokens.begin(), ordinary_tokens.end());
         last_piece_token_len = ordinary_tokens.size();
 
@@ -99,8 +183,9 @@ std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::_encode_native(const 
     return {ret, last_piece_token_len};
 }
 
-std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer::Rank>>> Tokenizer::_encode_unstable_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
-    auto [tokens, last_piece_token_len] = _encode_native(text, allowed_special);
+std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer::Rank>>> 
+Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
+    auto [tokens, last_piece_token_len] = encode_native(text, allowed_special);
     if (last_piece_token_len == 0) {
         return {tokens, {}};
     }
@@ -108,7 +193,7 @@ std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer
     // Increase last_piece_token_len for unstable regex splits
     auto token_is_all_space = [this](Rank token) {
         const auto& token_bytes = decoder_.at(token);
-        return std::all_of(token_bytes.rbegin(), token_bytes.rend(), [](unsigned char c) {
+        return std::all_of(token_bytes.begin(), token_bytes.end(), [](unsigned char c) {
             return c == ' ' || c == '\n' || c == '\t';
         });
     };
@@ -133,26 +218,31 @@ std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer
     }
 
     // Find single tokens that start with unstable_bytes
-    auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), unstable_bytes);
-    while (it != sorted_token_bytes_.end() && std::equal(unstable_bytes.begin(), unstable_bytes.end(), it->begin())) {
+    std::string unstable_str(unstable_bytes.begin(), unstable_bytes.end());
+    auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), unstable_str,
+        [](const std::string& a, const std::string& b) {
+            return a < b;
+        });
+    while (it != sorted_token_bytes_.end() && it->substr(0, unstable_str.length()) == unstable_str) {
         completions.insert({encoder_.at(*it)});
         ++it;
     }
 
     // Handle more complex cases
     for (size_t i = 1; i < unstable_bytes.size(); ++i) {
-        std::vector<unsigned char> prefix(unstable_bytes.begin(), unstable_bytes.begin() + i);
-        std::vector<unsigned char> suffix(unstable_bytes.begin() + i, unstable_bytes.end());
+        std::string prefix(unstable_bytes.begin(), unstable_bytes.begin() + i);
+        std::string suffix(unstable_bytes.begin() + i, unstable_bytes.end());
 
-        auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), suffix);
-        while (it != sorted_token_bytes_.end() && std::equal(suffix.begin(), suffix.end(), it->begin())) {
-            std::vector<unsigned char> possibility = prefix;
-            possibility.insert(possibility.end(), it->begin(), it->end());
+        auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), suffix,
+            [](const std::string& a, const std::string& b) {
+                return a < b;
+            });
+        while (it != sorted_token_bytes_.end() && it->substr(0, suffix.length()) == suffix) {
+            std::string possibility = prefix + *it;
 
             std::vector<Rank> encoded;
             try {
-                std::string utf8_str(possibility.begin(), possibility.end());
-                encoded = _encode_ordinary_native(utf8_str);
+                encoded = encode_ordinary(possibility);
             } catch (...) {
                 encoded = byte_pair_encode(ByteString(possibility.begin(), possibility.end()));
             }
@@ -202,7 +292,7 @@ Tokenizer::ByteString Tokenizer::decode(const std::vector<Rank>& tokens) const {
     return result;
 }
 
-Tokenizer::Rank Tokenizer::encode_single_token(const ByteString& piece) const {
+std::optional<Tokenizer::Rank> Tokenizer::encode_single_token(const ByteString& piece) const {
     auto it = encoder_.find(piece);
     if (it != encoder_.end()) {
         return it->second;
@@ -211,7 +301,7 @@ Tokenizer::Rank Tokenizer::encode_single_token(const ByteString& piece) const {
     if (special_it != special_tokens_encoder_.end()) {
         return special_it->second;
     }
-    throw std::runtime_error("Token not found");
+    return std::nullopt;
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::encode_single_piece(const ByteString& piece) const {
@@ -222,7 +312,7 @@ std::vector<Tokenizer::Rank> Tokenizer::encode_single_piece(const ByteString& pi
     return byte_pair_encode(piece);
 }
 
-Tokenizer::ByteString Tokenizer::decode_single_token_bytes(Rank token) const {
+std::optional<Tokenizer::ByteString> Tokenizer::decode_single_token_bytes(Rank token) const {
     auto it = decoder_.find(token);
     if (it != decoder_.end()) {
         return it->second;
@@ -231,7 +321,7 @@ Tokenizer::ByteString Tokenizer::decode_single_token_bytes(Rank token) const {
     if (special_it != special_tokens_decoder_.end()) {
         return special_it->second;
     }
-    throw std::runtime_error("Token not found");
+    return std::nullopt;
 }
 
 std::vector<Tokenizer::ByteString> Tokenizer::token_byte_values() const {
@@ -243,11 +333,10 @@ std::vector<Tokenizer::ByteString> Tokenizer::regex_split(const std::string& tex
     
     UErrorCode status = U_ZERO_ERROR;
     icu::UnicodeString utext = icu::UnicodeString::fromUTF8(text);
-    icu::RegexMatcher* matcher = regex_pattern_->matcher(utext, status);
+    std::unique_ptr<icu::RegexMatcher> matcher(regex_pattern_->matcher(utext, status));
 
     if (U_FAILURE(status)) {
         // Handle error
-        delete matcher;
         return result;
     }
 
@@ -258,11 +347,10 @@ std::vector<Tokenizer::ByteString> Tokenizer::regex_split(const std::string& tex
         result.push_back(utf8Match);
     }
 
-    delete matcher;
     return result;
 }
 
-std::vector<std::pair<size_t, Tokenizer::Rank>> Tokenizer::_byte_pair_merge(const ByteString& piece) const {
+std::vector<std::pair<size_t, Tokenizer::Rank>> Tokenizer::byte_pair_merge(const ByteString& piece) const {
     std::vector<std::pair<size_t, Rank>> parts;
     parts.reserve(piece.size() + 1);
 
@@ -311,22 +399,32 @@ std::vector<std::pair<size_t, Tokenizer::Rank>> Tokenizer::_byte_pair_merge(cons
 }
 
 std::vector<Tokenizer::Rank> Tokenizer::byte_pair_encode(const ByteString& piece) const {
-    assert(piece.size() > 1);
-    auto merged = _byte_pair_merge(piece);
+    if (piece.size() <= 1) {
+        throw std::invalid_argument("Input piece must be longer than 1 byte");
+    }
+    
+    auto merged = byte_pair_merge(piece);
     std::vector<Rank> result;
     result.reserve(merged.size() - 1);
 
     for (size_t i = 0; i < merged.size() - 1; ++i) {
         ByteString token = piece.substr(merged[i].first, merged[i + 1].first - merged[i].first);
-        result.push_back(encoder_.at(token));
+        auto it = encoder_.find(token);
+        if (it == encoder_.end()) {
+            throw std::runtime_error("Token not found in encoder: " + token);
+        }
+        result.push_back(it->second);
     }
 
     return result;
 }
 
 std::vector<Tokenizer::ByteString> Tokenizer::byte_pair_split(const ByteString& piece) const {
-    assert(piece.size() > 1);
-    auto merged = _byte_pair_merge(piece);
+    if (piece.size() <= 1) {
+        throw std::invalid_argument("Input piece must be longer than 1 byte");
+    }
+    
+    auto merged = byte_pair_merge(piece);
     std::vector<ByteString> result;
     result.reserve(merged.size() - 1);
 
@@ -335,43 +433,4 @@ std::vector<Tokenizer::ByteString> Tokenizer::byte_pair_split(const ByteString& 
     }
 
     return result;
-}
-
-void Tokenizer::initialize_regex_patterns() {
-    UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString pattern = icu::UnicodeString::fromUTF8(
-        R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-        R"([^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|)"
-        R"(\p{N}{1,3}|)"
-        R"( ?[^\s\p{L}\p{N}]+[\r\n/]*|)"
-        R"(\s*[\r\n]+|)"
-        R"(\s+(?!\S)|)"
-        R"(\s+)"
-    );
-    regex_pattern_ = icu::RegexPattern::compile(pattern, 0, status);
-    if (U_FAILURE(status)) {
-        throw std::runtime_error("Failed to compile main regex pattern");
-    }
-
-    // Initialize special tokens
-    special_tokens_encoder_["<|endoftext|>"] = 199999;
-    special_tokens_encoder_["<|endofprompt|>"] = 200018;
-    
-    // Populate special_tokens_decoder_ with the reverse mapping
-    for (const auto& pair : special_tokens_encoder_) {
-        special_tokens_decoder_[pair.second] = pair.first;
-    }
-
-    // Initialize special_regex_pattern_
-    std::string special_pattern = "";
-    for (const auto& token : special_tokens_encoder_) {
-        if (!special_pattern.empty()) {
-            special_pattern += "|";
-        }
-        special_pattern += std::regex_replace(token.first, std::regex("[\\^$.*+?()\\[\\]{}\\\\|]"), "\\$&");
-    }
-    special_regex_pattern_ = icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(special_pattern), 0, status);
-    if (U_FAILURE(status)) {
-        throw std::runtime_error("Failed to compile special regex pattern");
-    }
 }
