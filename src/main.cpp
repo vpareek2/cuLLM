@@ -16,7 +16,7 @@ int main() {
     }
 
     // Example text to tokenize
-    std::string text = "Hello, world! This is a test of my the tokenizer.";
+    std::string text = "This is the GPT-4o ToKENIzeR. 32714. :q'[]p`";
 
     // Encode the text
     std::vector<Tokenizer::Rank> tokens = tokenizer.encode(text);
