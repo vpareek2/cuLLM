@@ -100,14 +100,6 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
         rank++;
     }
 
-    std::cout << "Loaded " << encoder_.size() << " tokens into encoder." << std::endl;
-    std::cout << "First few entries:" << std::endl;
-    int count = 0;
-    for (const auto& entry : encoder_) {
-        std::cout << "  " << entry.first << " : " << entry.second << std::endl;
-        if (++count >= 5) break;
-    }
-
     // Initialize sorted_token_bytes_
     sorted_token_bytes_.reserve(encoder_.size());
     for (const auto& pair : encoder_) {
