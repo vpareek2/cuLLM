@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++17 -Wall -Wextra -O3 -I./includes -I./tests
+CXXFLAGS := -std=c++17 -Wall -Wextra -O3 -I./includes/tokenizer -I./tests
 LDFLAGS := -licuuc -licui18n
 
 # ICU path for Homebrew on Apple Silicon

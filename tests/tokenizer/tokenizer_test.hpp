@@ -1,7 +1,7 @@
 #ifndef TOKENIZER_TEST_HPP
 #define TOKENIZER_TEST_HPP
 
-#include "includes/tokenizer/tokenizer.hpp"
+#include "tokenizer.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -32,7 +32,7 @@ bool compare_vectors(const std::vector<T>& a, const std::vector<T>& b) {
 
 // Test cases
 bool test_basic_encode_decode() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "Hello, world!";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -40,7 +40,7 @@ bool test_basic_encode_decode() {
 }
 
 bool test_unicode_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "こんにちは世界! Здравствуй, мир! 🌍🌎🌏";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -48,7 +48,7 @@ bool test_unicode_encoding() {
 }
 
 bool test_whitespace_handling() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "  This  is \n a \t test  \r\n  with    spaces  ";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -56,7 +56,7 @@ bool test_whitespace_handling() {
 }
 
 bool test_number_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "123 45.67 1,000,000 3.14159265359";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -64,7 +64,7 @@ bool test_number_encoding() {
 }
 
 bool test_url_and_email_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "Visit https://www.example.com or email user@example.com";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -72,7 +72,7 @@ bool test_url_and_email_encoding() {
 }
 
 bool test_contractions_and_possessives() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "It's John's car. They're going to the store. I've been there.";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -80,7 +80,7 @@ bool test_contractions_and_possessives() {
 }
 
 bool test_long_input_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input(100000, 'a'); // 100,000 'a' characters
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -88,7 +88,7 @@ bool test_long_input_encoding() {
 }
 
 bool test_empty_string_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -96,7 +96,7 @@ bool test_empty_string_encoding() {
 }
 
 bool test_single_character_encoding() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     for (char c = 32; c < 127; ++c) { // Printable ASCII characters
         std::string input(1, c);
         auto tokens = tokenizer.encode(input);
@@ -110,7 +110,7 @@ bool test_single_character_encoding() {
 }
 
 bool test_special_characters() {
-    Tokenizer tokenizer("encoder.json");
+    Tokenizer tokenizer("vocab/o200k_base.tiktoken");
     std::string input = "!@#$%^&*()_+{}|:\"<>?`-=[]\\;',./";
     auto tokens = tokenizer.encode(input);
     auto decoded = tokenizer.decode(tokens);
@@ -138,10 +138,8 @@ int run_all_tests() {
     return failed_tests;
 }
 
-#ifdef TESTING
 int main() {
     return run_all_tests();
 }
-#endif // TESTING
 
 #endif // TOKENIZER_TEST_HPP
