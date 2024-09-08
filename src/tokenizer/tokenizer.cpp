@@ -66,13 +66,132 @@ std::vector<Tokenizer::Rank> Tokenizer::_encode_ordinary_native(const std::strin
 }
 
 std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::_encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
-    // Implement this method
-    // It should handle special tokens and use _encode_ordinary_native for regular text
+    std::vector<Rank> ret;
+    size_t start = 0;
+    size_t last_piece_token_len = 0;
+
+    while (start < text.length()) {
+        // Find the next allowed special token
+        std::string::size_type next_special_start = std::string::npos;
+        std::string::size_type next_special_end = std::string::npos;
+
+        for (const auto& special : allowed_special) {
+            auto pos = text.find(special, start);
+            if (pos != std::string::npos && (pos < next_special_start || next_special_start == std::string::npos)) {
+                next_special_start = pos;
+                next_special_end = pos + special.length();
+            }
+        }
+
+        // Process the text up to the next special token (or end of string)
+        std::string::size_type end = (next_special_start != std::string::npos) ? next_special_start : text.length();
+        auto ordinary_tokens = _encode_ordinary_native(text.substr(start, end - start));
+        ret.insert(ret.end(), ordinary_tokens.begin(), ordinary_tokens.end());
+        last_piece_token_len = ordinary_tokens.size();
+
+        // Process the special token if found
+        if (next_special_start != std::string::npos) {
+            std::string special_token = text.substr(next_special_start, next_special_end - next_special_start);
+            ret.push_back(special_tokens_encoder_.at(special_token));
+            start = next_special_end;
+            last_piece_token_len = 0;
+        } else {
+            break;
+        }
+    }
+
+    return {ret, last_piece_token_len};
 }
 
 std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer::Rank>>> Tokenizer::_encode_unstable_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
-    // Implement this method
-    // It should handle unstable tokens and use _encode_native
+    auto [tokens, last_piece_token_len] = _encode_native(text, allowed_special);
+    if (last_piece_token_len == 0) {
+        return {tokens, {}};
+    }
+
+    // Increase last_piece_token_len for unstable regex splits
+    auto token_is_all_space = [this](Rank token) {
+        const auto& token_bytes = decoder_.at(token);
+        return std::all_of(token_bytes.rbegin(), token_bytes.rend(), [](unsigned char c) {
+            return c == ' ' || c == '\n' || c == '\t';
+        });
+    };
+
+    if (last_piece_token_len > 0 && token_is_all_space(tokens[tokens.size() - last_piece_token_len])) {
+        while (last_piece_token_len < tokens.size() && 
+               token_is_all_space(tokens[tokens.size() - last_piece_token_len - 1])) {
+            last_piece_token_len++;
+        }
+    }
+
+    std::vector<unsigned char> unstable_bytes;
+    for (size_t i = tokens.size() - last_piece_token_len; i < tokens.size(); ++i) {
+        const auto& token_bytes = decoder_.at(tokens[i]);
+        unstable_bytes.insert(unstable_bytes.end(), token_bytes.begin(), token_bytes.end());
+    }
+    tokens.erase(tokens.end() - last_piece_token_len, tokens.end());
+
+    std::unordered_set<std::vector<Rank>> completions;
+    if (unstable_bytes.empty()) {
+        return {tokens, completions};
+    }
+
+    // Find single tokens that start with unstable_bytes
+    auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), unstable_bytes);
+    while (it != sorted_token_bytes_.end() && std::equal(unstable_bytes.begin(), unstable_bytes.end(), it->begin())) {
+        completions.insert({encoder_.at(*it)});
+        ++it;
+    }
+
+    // Handle more complex cases
+    for (size_t i = 1; i < unstable_bytes.size(); ++i) {
+        std::vector<unsigned char> prefix(unstable_bytes.begin(), unstable_bytes.begin() + i);
+        std::vector<unsigned char> suffix(unstable_bytes.begin() + i, unstable_bytes.end());
+
+        auto it = std::lower_bound(sorted_token_bytes_.begin(), sorted_token_bytes_.end(), suffix);
+        while (it != sorted_token_bytes_.end() && std::equal(suffix.begin(), suffix.end(), it->begin())) {
+            std::vector<unsigned char> possibility = prefix;
+            possibility.insert(possibility.end(), it->begin(), it->end());
+
+            std::vector<Rank> encoded;
+            try {
+                std::string utf8_str(possibility.begin(), possibility.end());
+                encoded = _encode_ordinary_native(utf8_str);
+            } catch (...) {
+                encoded = byte_pair_encode(ByteString(possibility.begin(), possibility.end()));
+            }
+
+            std::vector<Rank> seq;
+            size_t seq_len = 0;
+            for (Rank token : encoded) {
+                seq.push_back(token);
+                seq_len += decoder_.at(token).size();
+                if (seq_len >= unstable_bytes.size()) {
+                    break;
+                }
+            }
+            completions.insert(seq);
+            ++it;
+        }
+    }
+
+    // Handle potential regex split issues
+    if (unstable_bytes.size() > 1) {
+        auto it = unstable_bytes.rbegin();
+        while (it != unstable_bytes.rend() && (*it & 0xC0) == 0x80) ++it;
+        size_t last_char_size = std::distance(it, unstable_bytes.rend());
+
+        if (unstable_bytes.size() - last_char_size > 0 && std::isspace(*(unstable_bytes.end() - last_char_size))) {
+            std::vector<Rank> reencoded;
+            auto first_part = byte_pair_encode(ByteString(unstable_bytes.begin(), unstable_bytes.end() - last_char_size));
+            auto second_part = byte_pair_encode(ByteString(unstable_bytes.end() - last_char_size, unstable_bytes.end()));
+            reencoded.insert(reencoded.end(), first_part.begin(), first_part.end());
+            reencoded.insert(reencoded.end(), second_part.begin(), second_part.end());
+            completions.insert(reencoded);
+        }
+    }
+
+    return {tokens, completions};
 }
 
 Tokenizer::ByteString Tokenizer::decode(const std::vector<Rank>& tokens) const {
