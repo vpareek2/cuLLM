@@ -10,6 +10,7 @@
 #include <optional>
 #include <functional>
 
+// Custom hash function for std::vector<unsigned int>
 namespace std {
     template<>
     struct hash<vector<unsigned int>> {
@@ -23,6 +24,7 @@ namespace std {
     };
 }
 
+// Vector hasher for custom hash tables
 struct VectorHasher {
     size_t operator()(const std::vector<unsigned int>& v) const {
         size_t seed = v.size();
@@ -33,11 +35,13 @@ struct VectorHasher {
     }
 };
 
+// Main Tokenizer class
 class Tokenizer {
 public:
     using Rank = uint32_t;
     using ByteString = std::string;
 
+    // Constructor and destructor
     Tokenizer(const std::string& encoder_file);
     ~Tokenizer();
 
@@ -58,6 +62,7 @@ public:
     std::vector<ByteString> token_byte_values() const;
 
 private:
+    // Internal data structures
     std::unordered_map<ByteString, Rank> encoder_;
     std::unordered_map<std::string, Rank> special_tokens_encoder_;
     std::unordered_map<Rank, ByteString> decoder_;
@@ -76,7 +81,7 @@ private:
     // New encoding methods
     std::pair<std::vector<Rank>, size_t> encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const;
 
-    // Initialize ICU regex patterns and special tokens
+    // Initialization methods
     void initialize_regex_patterns();
     void initialize_special_tokens();
 

@@ -1,23 +1,23 @@
+// This file implements the Tokenizer class
+
 #include "tokenizer.hpp"
+
 #include <fstream>
 #include <sstream>
 #include <algorithm>
 #include <regex>
-#include <vector>
-#include <string>
-#include <unicode/regex.h>
 #include <cassert>
 #include <iostream>
-#include <optional>
 
 namespace {
 
+// Base64 character set used for encoding/decoding
 const std::string base64_chars = 
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
 
-// Add this function before base64_decode
+// Check if a character is a valid base64 character
 bool is_base64(unsigned char c) {
     return (isalnum(c) || (c == '+') || (c == '/'));
 }
@@ -67,7 +67,7 @@ std::string base64_decode(std::string_view encoded_string) {
     return ret;
 }
 
-// Move VectorHasher here if it's only used internally
+// Hash function for vectors, used in unordered containers
 struct VectorHasher {
     size_t operator()(const std::vector<unsigned int>& v) const {
         size_t seed = v.size();
@@ -79,6 +79,8 @@ struct VectorHasher {
 };
 
 } // anonymous namespace
+
+// Constructor: Initializes the tokenizer with the encoder file
 Tokenizer::Tokenizer(const std::string& encoder_file) {
     // Load encoder from file
     std::ifstream file(encoder_file);
@@ -116,6 +118,7 @@ Tokenizer::Tokenizer(const std::string& encoder_file) {
 
 Tokenizer::~Tokenizer() = default;
 
+// Initialize special tokens used by the tokenizer
 void Tokenizer::initialize_special_tokens() {
     special_tokens_encoder_["<|endoftext|>"] = 199999;
     special_tokens_encoder_["<|endofprompt|>"] = 200018;
@@ -126,6 +129,7 @@ void Tokenizer::initialize_special_tokens() {
     }
 }
 
+// Initialize regex patterns used for tokenization
 void Tokenizer::initialize_regex_patterns() {
     UErrorCode status = U_ZERO_ERROR;
     icu::UnicodeString pattern = icu::UnicodeString::fromUTF8(REGEX_PATTERN);
@@ -148,10 +152,12 @@ void Tokenizer::initialize_regex_patterns() {
     }
 }
 
+// Encode a string into a vector of token ranks
 std::vector<Tokenizer::Rank> Tokenizer::encode(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     return encode_native(text, allowed_special).first;
 }
 
+// Encode a string into tokens without handling special tokens
 std::vector<Tokenizer::Rank> Tokenizer::encode_ordinary(const std::string& text) const {
     std::vector<Rank> ret;
     ret.reserve(text.length());  // Reserve space based on input length
@@ -167,6 +173,7 @@ std::vector<Tokenizer::Rank> Tokenizer::encode_ordinary(const std::string& text)
     return ret;
 }
 
+// Encode a string into tokens, handling special tokens
 std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     std::vector<Rank> ret;
     ret.reserve(text.length());  // Reserve space based on input length
@@ -206,12 +213,14 @@ std::pair<std::vector<Tokenizer::Rank>, size_t> Tokenizer::encode_native(const s
     return {ret, last_piece_token_len};
 }
 
+// Check if a token consists only of whitespace characters
 bool Tokenizer::is_token_all_space(const ByteString& token) {
     return std::all_of(token.begin(), token.end(), [](unsigned char c) {
         return c == ' ' || c == '\n' || c == '\t';
     });
 }
 
+// Find single token completions for a given string
 std::vector<Tokenizer::Rank> Tokenizer::find_single_token_completions(
     const std::vector<ByteString>& sorted_token_bytes,
     const std::string& unstable_str) const {
@@ -228,6 +237,7 @@ std::vector<Tokenizer::Rank> Tokenizer::find_single_token_completions(
     return completions;
 }
 
+// Encode a string with handling of unstable tokens
 std::pair<std::vector<Tokenizer::Rank>, std::unordered_set<std::vector<Tokenizer::Rank>>> 
 Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_set<std::string>& allowed_special) const {
     auto [tokens, last_piece_token_len] = encode_native(text, allowed_special);
@@ -312,6 +322,7 @@ Tokenizer::encode_with_unstable(const std::string& text, const std::unordered_se
     return {tokens, completions};
 }
 
+// Decode a vector of token ranks back into a byte string
 Tokenizer::ByteString Tokenizer::decode(const std::vector<Rank>& tokens) const {
     ByteString result;
     for (const auto& token : tokens) {

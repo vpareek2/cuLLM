@@ -1,3 +1,4 @@
 bpe.rs
 .vscode
 bin
+.DS_Store
