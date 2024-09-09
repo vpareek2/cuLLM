@@ -9,4 +9,5 @@ I made the choice to use C++ for this tokenizer. Mainly because the rest of the 
 
 This file contains a walkthrough of the code in the tokenizer, explaining piece by piece. Before reading through this, I highly recommend watching Andrej Karpathy's ["Let's build the GPT Tokenizer"](https://youtu.be/zduSFxRajkE?si=O4DB8YQ51MRv_OtD) it's a great introduction to what tokenizers are and how they work.'
 
-
+## Tokenizers
+A tokenizer is a 
