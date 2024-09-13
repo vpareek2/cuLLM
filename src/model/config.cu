@@ -21,14 +21,6 @@ void destroy_cublas_handle() {
     }
 }
 
-// Utility functions implementation
-__host__ 
-long time_in_ms() {
-    struct timespec time;
-    clock_gettime(CLOCK_REALTIME, &time);
-    return time.tv_sec * 1000 + time.tv_nsec / 1000000;
-}
-
 __host__ 
 __device__ 
 void safe_printf(const char* format, ...) {

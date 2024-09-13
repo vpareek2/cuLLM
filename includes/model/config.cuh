@@ -38,9 +38,7 @@ extern cublasHandle_t g_cublas_handle;
 void create_cublas_handle();
 void destroy_cublas_handle();
 
-// Utility functions
-__host__ 
-long time_in_ms();
+
 
 __host__ 
 __device__ 
@@ -67,9 +65,5 @@ void free_host(void* ptr);
 const int num_threads_large = 1024;
 const int num_threads_small = 64;
 
-// Utility function for dividing work among threads
-__host__ __device__ inline int divUp(int a, int b) {
-    return (a - 1) / b + 1;
-}
 
 #endif // CONFIG_CUH
