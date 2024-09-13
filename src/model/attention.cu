@@ -4,10 +4,6 @@
 #include <cuda_runtime.h>
 #include <cub/cub.cuh>
 
-// Define this constant here or include it from a common header
-const int num_threads_large = 1024;
-const int num_threads_small = 64;
-
 __global__ 
 void multi_head_attention_kernel(int pos, int seq_len, float *sq, float *satt, float *sxb, float *key_cache,
                                  float *value_cache, int kv_dim, int kv_mul, int head_size, int loff) {
