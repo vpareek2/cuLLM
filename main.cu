@@ -1,4 +1,6 @@
-
+#include "common.cuh"
+#include "config.cuh"
+#include "transformer.cuh"
 
 // Utility functions implementation
 __host__ __device__ inline int divUp(int a, int b) {
