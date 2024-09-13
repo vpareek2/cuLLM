@@ -1,11 +1,7 @@
 #ifndef CONFIG_CUH
 #define CONFIG_CUH
 
-#include <cuda_runtime.h>
-#include <cublas_v2.h>
-#include <cub/cub.cuh>
-#include <stdio.h>
-#include <stdlib.h>
+#include "common.cuh"
 
 // Configuration structure for the transformer model
 typedef struct {

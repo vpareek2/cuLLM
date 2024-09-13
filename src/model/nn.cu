@@ -1,7 +1,4 @@
 #include "nn.cuh"
-#include <cuda_runtime.h>
-#include <cublas_v2.h>
-#include <cub/cub.cuh>
 
 const int num_threads_large = 1024;
 

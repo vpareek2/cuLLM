@@ -1,8 +1,4 @@
-#include "includes/model/attention.cuh"
-#include "includes/model/config.cuh"
-#include "includes/model/nn.cuh"
-#include <cuda_runtime.h>
-#include <cub/cub.cuh>
+#include "attention.cuh"
 
 __global__ 
 void multi_head_attention_kernel(int pos, int seq_len, float *sq, float *satt, float *sxb, float *key_cache,

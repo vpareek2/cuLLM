@@ -1,6 +1,4 @@
 #include "config.cuh"
-#include <time.h>
-#include <stdarg.h>
 
 // Global cuBLAS handle implementation
 cublasHandle_t g_cublas_handle = nullptr;

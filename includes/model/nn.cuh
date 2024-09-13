@@ -2,7 +2,7 @@
 #define NN_CUH
 
 #include "config.cuh"
-#include <cublas_v2.h>
+#include "common.cuh"
 
 // Constants
 extern const int num_threads_large;

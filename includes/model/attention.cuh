@@ -1,6 +1,7 @@
 #ifndef ATTENTION_CUH
 #define ATTENTION_CUH
 
+#include "common.cuh"
 #include "config.cuh"
 
 // Function declarations

@@ -2,6 +2,7 @@
 #define TRANSFORMER_CUH
 
 #include "config.cuh"
+#include "common.cuh"
 
 // Transformer weights structure
 typedef struct {

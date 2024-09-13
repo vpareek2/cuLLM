@@ -1,7 +1,4 @@
 #include "transformer.cuh"
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 // Implementation of functions declared in transformer.cuh
 
