@@ -3,7 +3,6 @@
 #include "transformer.cuh"
 #include "utils.cuh"
 #include "tokenizer.hpp"
-#include "attention.cuh"
 
 
 
@@ -69,30 +68,17 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, const char *prompt
 // CLI, include only if not testing
 // ----------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
-    // default parameters
-    char *checkpoint_path = (char *) "stories15M.bin";  // e.g. out/model.bin
-    char *tokenizer_path = (char *) "tokenizer.bin";
-    int max_new_tokens = 50;                            // number of max_new_tokens to run for
-    char *prompt = (char *) "I have a dream";           // poor man's prompt string
-
-    // poor man's C argparse so we can override the defaults above from the command line
+    char *checkpoint_path = (char *) "stories15M.bin";
+    char *tokenizer_path = (char *) "vocab/o200k_base.tiktoken";
+    int max_new_tokens = 50;
+    char *prompt = (char *) "";
     if (argc >= 2) { prompt = argv[1]; }
-
-    // build the Transformer via the model .bin file
     Transformer transformer;
-    int num_kv_heads = 8; // Set this to the appropriate number of KV heads for your model
+    int num_kv_heads = 8; // as per the llama3.1 paper
     build_transformer(&transformer, checkpoint_path, num_kv_heads);
-
-    // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer(tokenizer_path);
-
     create_cublas_handle();
-
-    // run!
     generate(&transformer, &tokenizer, prompt, max_new_tokens);
-
-    // memory and file handles cleanup
-    // free_tokenizer(&tokenizer); // Remove this line as Tokenizer is now handled by C++ destructor
     free_transformer(&transformer);
     destroy_cublas_handle();
     return 0;

@@ -49,7 +49,6 @@ __device__ void softmax_gpu(float *__restrict__ x, int size) {
     int tid = threadIdx.x;
     int step = blockDim.x;
 
-    // find max value (for numerical stability)
     float max_val = tid < size ? x[tid] : 0;
     for (int i = tid + step; i < size; i += step) {
         if (x[i] > max_val) {
@@ -66,7 +65,6 @@ __device__ void softmax_gpu(float *__restrict__ x, int size) {
     __syncthreads();
     max_val = shared_val;
 
-    // exp and sum
     float sum = 0.0f;
     for (int i = tid; i < size; i += step) {
         x[i] = expf(x[i] - max_val);
@@ -79,34 +77,27 @@ __device__ void softmax_gpu(float *__restrict__ x, int size) {
     __syncthreads();
     sum = shared_val;
 
-    // normalize
     for (int i = tid; i < size; i += step) {
         x[i] /= sum;
     }
 }
 
 void matmul(float *xout, float *x, float *w, int n, int d) {
-    // W (D, L) @ x (L,) -> xout (D,)
-    // W is stored in this order: (L=0,D=0), (L=1,D=0), (L=2,D=0), ...
-    // so W is L x D in cublas terms & we'll need to transpose.
-    // Sgemv does y = alpha * op(A) * x + beta * y (modifying y)
-    // where op can transpose the matrix A Translating to our local vars, that is
-    // xout = 1.0*op(w)*x + 0.0*xout
     float alpha = 1.0f;
-    float beta = 0.0f; // when this is 0, xout will not be used for input
+    float beta = 0.0f;
     cublasSgemv(g_cublas_handle, CUBLAS_OP_T, n, d, &alpha, w, n, x, 1, &beta, xout, 1);
 }
 
 __global__ void RoPE_rotation_kernel(int pos, float *sq, float *sk, int kv_dim, int head_size) {
     int i = threadIdx.x * 2;
     int head_dim = i % head_size;
-    float freq = 1.0f / powf(10000.0f, head_dim / (float) head_size);
+    float freq = 1.0f / powf(500000.0f, head_dim / (float) head_size); // 500,000 RoPE frequency hyperparameter as per llama3.1 paper
     float val = pos * freq;
     float fcr = cosf(val);
     float fci = sinf(val);
-    int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
+    int rotn = i < kv_dim ? 2 : 1;
     for (int v = 0; v < rotn; v++) {
-        float *vec = v == 0 ? sq : sk; // the vector to rotate (query or key)
+        float *vec = v == 0 ? sq : sk;
         float v0 = vec[i];
         float v1 = vec[i + 1];
         vec[i] = v0 * fcr - v1 * fci;
