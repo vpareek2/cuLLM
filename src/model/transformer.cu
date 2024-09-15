@@ -78,16 +78,12 @@ float* forward(Transformer *transformer, int token, int pos) {
         // ffn rmsnorm
         rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
-        // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
-        // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
-
-        // SwiGLU non-linearity
-        f_silu_elementwise_mul_w3(s, hidden_dim);
+        // SwiGLU
+        int ffn_dim = p->hidden_dim * 2; // Typically, SwiGLU uses 2/3 * 4 * dim for hidden_dim
+        swiglu(s, dim, ffn_dim); 
 
         // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xb, s->hb, w->w2 + l*dim*p->hidden_dim, p->hidden_dim, dim);
 
         // residual connection
         accum(x, s->xb, dim);
@@ -160,9 +156,14 @@ void memory_map_weights(TransformerWeights *w, Config *p, float *ptr, int shared
     w->w1 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
     w->w2 = ptr;
-    ptr += n_layers * p->hidden_dim * p->dim;
-    w->w3 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
+    // Remove this line:
+    // w->w3 = ptr;
+    // ptr += n_layers * p->dim * p->hidden_dim;
+    w->b1 = ptr;
+    ptr += n_layers * p->hidden_dim;
+    w->b2 = ptr;
+    ptr += n_layers * p->hidden_dim;
     w->rms_final_weight = ptr;
     ptr += p->dim;
     ptr += p->max_seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)

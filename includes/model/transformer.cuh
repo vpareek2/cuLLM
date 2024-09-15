@@ -15,7 +15,8 @@ typedef struct {
     float *rms_ffn_weight;
     float *w1;
     float *w2;
-    float *w3;
+    float *b1;
+    float *b2;
     float *rms_final_weight;
     float *wcls;
 } TransformerWeights;
@@ -26,7 +27,7 @@ typedef struct {
     float *xb;
     float *xb2;
     float *hb;
-    float *hb2;
+
     float *q;
     float *k;
     float *v;
