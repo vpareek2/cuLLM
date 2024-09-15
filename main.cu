@@ -3,6 +3,7 @@
 #include "transformer.cuh"
 #include "utils.cuh"
 #include "tokenizer.hpp"
+#include "attention.cuh"
 
 
 
@@ -79,9 +80,8 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, checkpoint_path);
-    if (max_new_tokens > transformer.config.max_seq_len)
-        max_new_tokens = transformer.config.max_seq_len; // override to ~max length
+    int num_kv_heads = 8; // Set this to the appropriate number of KV heads for your model
+    build_transformer(&transformer, checkpoint_path, num_kv_heads);
 
     // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer(tokenizer_path);

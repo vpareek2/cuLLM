@@ -45,9 +45,10 @@ typedef struct {
     int fd;
     float *data;
     ssize_t file_size;
+    int num_kv_heads; // Add this line
 } Transformer;
 
-void build_transformer(Transformer *t, char *checkpoint_path);
+void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads);
 void free_transformer(Transformer *t);
 float* forward(Transformer *transformer, int token, int pos);
 

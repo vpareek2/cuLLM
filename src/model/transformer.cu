@@ -2,12 +2,15 @@
 
 // Implementation of functions declared in transformer.cuh
 
-void build_transformer(Transformer *t, char *checkpoint_path) {
+void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads) {
     // read in the Config
     FILE *file = fopen(checkpoint_path, "rb");
     if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint_path); exit(EXIT_FAILURE); }
     if (fread(&t->config, sizeof(Config), 1, file) != 1) { exit(EXIT_FAILURE); }
     fclose(file);
+
+    // set the number of key-value heads
+    t->num_kv_heads = num_kv_heads;
 
     // memory map the Transformer weights into the data pointer
     t->fd = open(checkpoint_path, O_RDONLY);
@@ -40,8 +43,7 @@ float* forward(Transformer *transformer, int token, int pos) {
     RunState* s = &transformer->state;
     float *x = s->x;
     int dim = p->dim;
-    int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing
+    int kv_dim = (p->dim * transformer->num_kv_heads) / p->n_heads;
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
@@ -63,9 +65,9 @@ float* forward(Transformer *transformer, int token, int pos) {
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         RoPe_rotation(pos, s, dim, kv_dim, head_size);
 
-        // multihead attention. iterate over all heads
+        // multihead attention. use grouped query attention
         int loff = l * p->max_seq_len * kv_dim;
-        multi_head_attention(pos, p, s, kv_dim, kv_mul, head_size, loff);
+        grouped_query_attention(pos, p, s, kv_dim, transformer->num_kv_heads, head_size, loff);
 
         // final matmul to get the output of the attention
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
