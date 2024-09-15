@@ -109,23 +109,6 @@ void RoPE_rotation(int pos, RunState *s, int dim, int kv_dim, int head_size) {
     RoPE_rotation_kernel<<<1, dim / 2>>>(pos, s->q, s->k, kv_dim, head_size);
 }
 
-__global__ void f_silu_elementwise_mul_w3_kernel(float *shb, float *shb2, int hidden_dim) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < hidden_dim) {
-        float val = shb[i];
-        // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-        val *= (1.0f / (1.0f + expf(-val)));
-        // elementwise multiply with w3(x)
-        val *= shb2[i];
-        shb[i] = val;
-    }
-}
-
-void f_silu_elementwise_mul_w3(RunState *s, int hidden_dim) {
-    int num_threads_small = 256; // You might want to define this as a constant
-    f_silu_elementwise_mul_w3_kernel<<<divUp(hidden_dim, num_threads_small), num_threads_small>>>(s->hb, s->hb2, hidden_dim);
-}
-
 __global__ void accum_kernel(float *a, float *b, int size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -152,4 +135,28 @@ void destroy_cublas_handle() {
         printf("CUBLAS destruction failed\n");
         exit(EXIT_FAILURE);
     }
+}
+
+__device__ float swish(float x) {
+    return x / (1.0f + expf(-x));
+}
+
+__global__ void swiglu_kernel(float *out, float *x, float *w1, float *w2, float *b1, float *b2, int hidden_dim, int ffn_dim) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < ffn_dim) {
+        float val1 = 0.0f, val2 = 0.0f;
+        for (int j = 0; j < hidden_dim; j++) {
+            val1 += x[j] * w1[j * ffn_dim + i];
+            val2 += x[j] * w2[j * ffn_dim + i];
+        }
+        val1 += b1[i];
+        val2 += b2[i];
+        out[i] = swish(val1) * val2;
+    }
+}
+
+void swiglu(RunState *s, int hidden_dim, int ffn_dim) {
+    int num_threads = 256;
+    int num_blocks = (ffn_dim + num_threads - 1) / num_threads;
+    swiglu_kernel<<<num_blocks, num_threads>>>(s->hb, s->x, s->w1, s->w2, s->b1, s->b2, hidden_dim, ffn_dim);
 }
