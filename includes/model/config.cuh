@@ -1,3 +1,9 @@
+/**
+ * This file contains the configuration structure for the transformer model.
+ * It includes the dimensions, number of layers, number of query and key/value heads,
+ * vocabulary size, and maximum sequence length.
+ */
+
 #ifndef CONFIG_CUH
 #define CONFIG_CUH
 
@@ -33,8 +39,6 @@ extern cublasHandle_t g_cublas_handle;
 // Function declarations
 void create_cublas_handle();
 void destroy_cublas_handle();
-
-
 
 __host__ 
 __device__ 

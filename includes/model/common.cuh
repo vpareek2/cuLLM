@@ -1,3 +1,8 @@
+/**
+ * This file contains common headers and libraries used throughout the project.
+ * It includes standard libraries, CUDA runtime, CUBLAS, and other dependencies.
+ */
+
 #ifndef COMMON_CUH
 #define COMMON_CUH
 
