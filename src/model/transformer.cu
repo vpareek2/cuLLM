@@ -1,42 +1,65 @@
+/**
+ * This file contains the implementation of the Transformer architecture.
+ */
+
 #include "transformer.cuh"
 
-// Implementation of functions declared in transformer.cuh
-
+/**
+ * @brief Builds the Transformer architecture.
+ * @param t The Transformer structure to be built.
+ * @param checkpoint_path The path to the checkpoint file.
+ * @param num_kv_heads The number of key-value heads, for GQA.
+ */ 
 void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads) {
-    // read in the Config
+    // Open the checkpoint file
     FILE *file = fopen(checkpoint_path, "rb");
     if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint_path); exit(EXIT_FAILURE); }
+    
+    // Read the configuration from the file
     if (fread(&t->config, sizeof(Config), 1, file) != 1) { exit(EXIT_FAILURE); }
     fclose(file);
 
-    // set the number of key-value heads
+    // Set the number of key-value heads
     t->num_kv_heads = num_kv_heads;
 
-    // memory map the Transformer weights into the data pointer
+    // Memory map the checkpoint file
     t->fd = open(checkpoint_path, O_RDONLY);
     if (t->fd == -1) { fprintf(stderr, "open failed\n"); exit(EXIT_FAILURE); }
     t->file_size = lseek(t->fd, 0, SEEK_END);
     t->data = (float*)mmap(NULL, t->file_size, PROT_READ, MAP_PRIVATE, t->fd, 0);
     if (t->data == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); exit(EXIT_FAILURE); }
+    
+    // Point to the start of the weights in the mapped memory
     float* weights_ptr = t->data + sizeof(Config) / sizeof(float);
 
-    // set all the pointers in the TransformerWeights struct
+    // Map the weights to the appropriate structures
     memory_map_weights(&t->weights, &t->config, weights_ptr, 1);
 
-    // allocate the RunState buffers
+    // Allocate memory for the run state
     malloc_run_state(&t->state, &t->config);
 }
 
+/**
+ * @brief Frees the Transformer architecture.
+ * @param t The Transformer structure to be freed.
+ */
 void free_transformer(Transformer *t) {
-    // close the memory mapping
+    // Unmap the memory-mapped file if it exists
     if (t->data != NULL) {
         munmap(t->data, t->file_size);
         close(t->fd);
     }
-    // free the RunState buffers
+    // Free the run state
     free_run_state(&t->state);
 }
 
+/**
+ * @brief Performs the forward pass of the Transformer architecture.
+ * @param transformer The Transformer structure.
+ * @param token The token to be processed.
+ * @param pos The position of the token in the sequence.
+ * @return The logits of the token.
+ */ 
 float* forward(Transformer *transformer, int token, int pos) {
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
@@ -47,59 +70,65 @@ float* forward(Transformer *transformer, int token, int pos) {
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 
-    // copy the token embedding into x
+    // Copy the token embedding to GPU memory
     float* content_row = w->token_embedding + token * dim;
     CUDA_CHECK(cudaMemcpy(x, content_row, dim * sizeof(float), cudaMemcpyHostToDevice));
 
-    // forward all the layers
+    // Process each layer of the transformer
     for(int l = 0; l < p->n_layers; l++) {
-
-        // attention rmsnorm
+        // Layer normalization before self-attention
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
-        // qkv matmuls for this position
+        // Compute query, key, and value
         matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
         matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
         matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
 
-        // RoPE relative positional encoding: complex-valued rotate q and k in each head
+        // Apply rotary positional embedding
         RoPe_rotation(pos, s, dim, kv_dim, head_size);
 
-        // multihead attention. use grouped query attention
+        // Compute attention
         int loff = l * p->max_seq_len * kv_dim;
         grouped_query_attention(pos, p, s, kv_dim, transformer->num_kv_heads, head_size, loff);
 
-        // final matmul to get the output of the attention
+        // Compute output projection
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
-        // residual connection back into x
+        // Residual connection
         accum(x, s->xb2, dim);
 
-        // ffn rmsnorm
+        // Layer normalization before feed-forward network
         rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
 
-        // SwiGLU
-        int ffn_dim = p->hidden_dim * 2; // Typically, SwiGLU uses 2/3 * 4 * dim for hidden_dim
+        // Feed-forward network
+        int ffn_dim = p->hidden_dim * 2; 
         swiglu(s, dim, ffn_dim); 
 
-        // final matmul to get the output of the ffn
+        // Output projection of feed-forward network
         matmul(s->xb, s->hb, w->w2 + l*dim*p->hidden_dim, p->hidden_dim, dim);
 
-        // residual connection
+        // Residual connection
         accum(x, s->xb, dim);
     }
 
-    // final rmsnorm
+    // Final layer normalization
     rmsnorm(x, x, w->rms_final_weight, dim);
 
-    // classifier into logits
+    // Compute logits
     matmul(s->logits_gpu, x, w->wcls, p->dim, p->vocab_size);
     CUDA_CHECK(cudaMemcpy(s->logits, s->logits_gpu, p->vocab_size * sizeof(float), cudaMemcpyDeviceToHost));
     return s->logits;
 }
 
+/**
+ * @brief Allocates the RunState buffers.
+ * @param s The RunState structure to be allocated.
+ * @param p The Config structure.
+ */ 
 void malloc_run_state(RunState *s, Config *p) {
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
+    
+    // Allocate memory for various tensors used in the forward pass
     CUDA_CHECK(cudaMalloc((void **) &s->x, p->dim * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void **) &s->xb, p->dim * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void **) &s->xb2, p->dim * sizeof(float)));
@@ -110,10 +139,9 @@ void malloc_run_state(RunState *s, Config *p) {
     CUDA_CHECK(cudaMalloc((void **) &s->value_cache, p->n_layers * p->max_seq_len * kv_dim * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void **) &s->att, p->n_heads * p->max_seq_len * sizeof(float)));
     CUDA_CHECK(cudaMalloc((void **) &s->logits_gpu, p->vocab_size * sizeof(float)));
-    // we calloc instead of malloc to keep valgrind happy
     s->logits = (float *) calloc(p->vocab_size, sizeof(float));
 
-    // ensure all cudaMallocs went fine
+    // Check if all allocations were successful
     if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
         || !s->key_cache || !s->value_cache || !s->att || !s->logits_gpu || !s->logits) {
         fprintf(stderr, "cudaMalloc failed!\n");
@@ -121,7 +149,12 @@ void malloc_run_state(RunState *s, Config *p) {
     }
 }
 
+/**
+ * @brief Frees the RunState buffers.
+ * @param s The RunState structure to be freed.
+ */
 void free_run_state(RunState *s) {
+    // Free all allocated GPU memory
     CUDA_CHECK(cudaFree(s->x));
     CUDA_CHECK(cudaFree(s->xb));
     CUDA_CHECK(cudaFree(s->xb2));
@@ -130,17 +163,29 @@ void free_run_state(RunState *s) {
     CUDA_CHECK(cudaFree(s->q));
     CUDA_CHECK(cudaFree(s->att));
     CUDA_CHECK(cudaFree(s->logits_gpu));
-    free(s->logits);
     CUDA_CHECK(cudaFree(s->key_cache));
     CUDA_CHECK(cudaFree(s->value_cache));
+    
+    // Free CPU memory
+    free(s->logits);
 }
 
+/**
+ * @brief Maps the weights of the Transformer architecture.
+ * @param w The TransformerWeights structure to be mapped.
+ * @param p The Config structure.
+ * @param ptr The pointer to the weights.
+ * @param shared_weights Whether the weights are shared.
+ */
 void memory_map_weights(TransformerWeights *w, Config *p, float *ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
-    // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
     unsigned long long n_layers = p->n_layers;
+    
+    // Map token embeddings
     w->token_embedding = ptr;
     ptr += p->vocab_size * p->dim;
+    
+    // Map attention weights
     w->rms_att_weight = ptr;
     ptr += n_layers * p->dim;
     w->wq = ptr;
@@ -151,22 +196,27 @@ void memory_map_weights(TransformerWeights *w, Config *p, float *ptr, int shared
     ptr += n_layers * p->dim * (p->n_kv_heads * head_size);
     w->wo = ptr;
     ptr += n_layers * (p->n_heads * head_size) * p->dim;
+    
+    // Map feed-forward network weights
     w->rms_ffn_weight = ptr;
     ptr += n_layers * p->dim;
     w->w1 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
     w->w2 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
-    // Remove this line:
-    // w->w3 = ptr;
-    // ptr += n_layers * p->dim * p->hidden_dim;
     w->b1 = ptr;
     ptr += n_layers * p->hidden_dim;
     w->b2 = ptr;
     ptr += n_layers * p->hidden_dim;
+    
+    // Map final layer normalization weights
     w->rms_final_weight = ptr;
     ptr += p->dim;
-    ptr += p->max_seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)
-    ptr += p->max_seq_len * head_size / 2; // skip what used to be freq_cis_imag (for RoPE)
+    
+    // Skip rope frequencies (if present)
+    ptr += p->max_seq_len * head_size / 2; 
+    ptr += p->max_seq_len * head_size / 2;
+    
+    // Map classifier weights (may be shared with token embeddings)
     w->wcls = shared_weights ? w->token_embedding : ptr;
 }

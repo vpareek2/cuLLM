@@ -1,3 +1,7 @@
+/**
+ * This file contains the definition of the Transformer architecture and related functions.
+ */
+
 #ifndef TRANSFORMER_CUH
 #define TRANSFORMER_CUH
 
@@ -27,7 +31,6 @@ typedef struct {
     float *xb;
     float *xb2;
     float *hb;
-
     float *q;
     float *k;
     float *v;
@@ -46,7 +49,7 @@ typedef struct {
     int fd;
     float *data;
     ssize_t file_size;
-    int num_kv_heads; // Add this line
+    int num_kv_heads;
 } Transformer;
 
 void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads);
