@@ -47,7 +47,6 @@ typedef struct {
     ssize_t file_size;
 } Transformer;
 
-// Function declarations
 void build_transformer(Transformer *t, char *checkpoint_path);
 void free_transformer(Transformer *t);
 float* forward(Transformer *transformer, int token, int pos);

@@ -1,6 +1,7 @@
 #include "common.cuh"
 #include "config.cuh"
 #include "transformer.cuh"
+#include "tokenizer/tokenizer.hpp" // Add this include
 
 // Utility functions implementation
 __host__ __device__ inline int divUp(int a, int b) {
@@ -34,16 +35,14 @@ int sample_argmax(float *probabilities, int n) {
 // ----------------------------------------------------------------------------
 // generation loop
 // ----------------------------------------------------------------------------
-void generate(Transformer *transformer, Tokenizer *tokenizer, char *prompt, int max_new_tokens) {
-    char *empty_prompt = (char *) "";
+void generate(Transformer *transformer, Tokenizer *tokenizer, const char *prompt, int max_new_tokens) {
+    const char *empty_prompt = "";
     if (prompt == NULL) { prompt = empty_prompt; }
 
     // encode the (string) prompt into tokens sequence
-    int num_prompt_tokens = 0;
-    int *prompt_tokens = (int *) malloc((strlen(prompt) + 3) * sizeof(int)); // +3 for '\0', ?BOS, ?EOS
-    encode(tokenizer, prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
-    // TODO: pretty dirty monkey patch for 'I have a dream' prompt.
-    if (prompt_tokens[1] == 306) prompt_tokens[1] = 76;
+    std::vector<Tokenizer::Rank> prompt_tokens = tokenizer->encode(prompt);
+    int num_prompt_tokens = prompt_tokens.size();
+
     if (num_prompt_tokens < 1) {
         fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
         exit(EXIT_FAILURE);
@@ -51,8 +50,8 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, char *prompt, int 
 
     // start the main loop
     long start = 0;  // used to time our code, only initialized after first iteration
-    int next;        // will store the next token in the sequence
-    int token = prompt_tokens[0]; // kick off with the first token in the prompt
+    Tokenizer::Rank next;        // will store the next token in the sequence
+    Tokenizer::Rank token = prompt_tokens[0]; // kick off with the first token in the prompt
     int pos = 0;     // position in the sequence
     while (pos < max_new_tokens - 1) {
         // forward the transformer to get logits for the next token
@@ -71,8 +70,8 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, char *prompt, int 
         if (next == 1) { break; }
 
         // print the token as string, decode it with the Tokenizer object
-        char *piece = decode(tokenizer, token, next);
-        safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
+        std::string piece = tokenizer->decode({token, next});
+        safe_printf(piece.c_str()); // same as printf("%s", piece.c_str()), but skips "unsafe" bytes
         fflush(stdout);
         token = next;
 
@@ -111,8 +110,7 @@ int main(int argc, char *argv[]) {
         max_new_tokens = transformer.config.max_seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
-    Tokenizer tokenizer;
-    build_tokenizer(&tokenizer, tokenizer_path, transformer.config.vocab_size);
+    Tokenizer tokenizer(tokenizer_path);
 
     create_cublas_handle();
 
@@ -120,7 +118,7 @@ int main(int argc, char *argv[]) {
     generate(&transformer, &tokenizer, prompt, max_new_tokens);
 
     // memory and file handles cleanup
-    free_tokenizer(&tokenizer);
+    // free_tokenizer(&tokenizer); // Remove this line as Tokenizer is now handled by C++ destructor
     free_transformer(&transformer);
     destroy_cublas_handle();
     return 0;
