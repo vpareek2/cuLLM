@@ -1,4 +1,3 @@
 .vscode
 bin
 .DS_Store
-model.cu
