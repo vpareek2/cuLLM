@@ -89,7 +89,7 @@ int main(int argc, char *argv[]) {
     char *tokenizer_path = (char *) "vocab/o200k_base.tiktoken";
 
     // Maximum number of tokens to generate
-    int max_toks = 50;
+    int max_toks = 100; // Default is 100, feel free to change
 
     // Default prompt is empty, but can be provided as a command-line argument
     char *prompt = (char *) "";
