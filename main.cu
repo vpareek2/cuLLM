@@ -85,7 +85,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, const char *prompt
 
 int main(int argc, char *argv[]) {
     // Default paths for the model checkpoint and tokenizer
-    char *checkpoint_path = (char *) "stories15M.bin";
+    char *checkpoint_path = (char *) ""; // Insert checkpoint path here
     char *tokenizer_path = (char *) "vocab/o200k_base.tiktoken";
 
     // Maximum number of tokens to generate

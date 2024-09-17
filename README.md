@@ -1,2 +1,3 @@
 # cuLLM
 
+LLM written from scratch in CUDA, for inference. It follows the architecture presented in the LLaMA 3.1 paper, "The Llama 3 Herd of Models". It is meant to be used with pretrained weights; navigate to main.cu and enter your weights path in line 88. This repository also contains a tokenizer written from scratch in C++, as close to the llama one as possible, using the GPT-4o (o200k_base) regex pattern with bpe.
