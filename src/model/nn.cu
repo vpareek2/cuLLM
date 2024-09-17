@@ -5,6 +5,17 @@ const int num_threads_large = 1024;
 
 cublasHandle_t g_cublas_handle = nullptr;
 
+// Add at the top of the file
+#define CUDA_CHECK(call) { \
+    cudaError_t err = call; \
+    if (err != cudaSuccess) { \
+        fprintf(stderr, "CUDA error in %s at line %d: %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
+        exit(EXIT_FAILURE); \
+    } \
+}
+
+__constant__ float d_rope_freq;
+
 /**
  * @brief Divides the first argument by the second and rounds up to the nearest integer, for CUDA kernel launches.
  * @param a The dividend.
@@ -56,7 +67,6 @@ void rmsnorm_kernel(float *o, float *x, float *weight, int size, int elementsPer
         }
     }
 }
-
 
 /**
  * @brief RMSNorm normalization function.
@@ -139,7 +149,7 @@ __global__
 void RoPE_rotation_kernel(int pos, float *sq, float *sk, int kv_dim, int head_size) {
     int i = threadIdx.x * 2;
     int head_dim = i % head_size;
-    float freq = 1.0f / powf(500000.0f, head_dim / (float) head_size); // 500,000 RoPE frequency hyperparameter as per llama3.1 paper
+    float freq = 1.0f / powf(d_rope_freq, head_dim / (float) head_size);
     float val = pos * freq;
     float fcr = cosf(val);
     float fci = sinf(val);
@@ -162,7 +172,12 @@ void RoPE_rotation_kernel(int pos, float *sq, float *sk, int kv_dim, int head_si
  * @param head_size The size of each head.
  */
 void RoPE_rotation(int pos, RunState *s, int dim, int kv_dim, int head_size) {
+    // Copy RoPE frequency to constant memory (do this once during initialization)
+    float rope_freq = 500000.0f;
+    CUDA_CHECK(cudaMemcpyToSymbol(d_rope_freq, &rope_freq, sizeof(float)));
+
     RoPE_rotation_kernel<<<1, dim / 2>>>(pos, s->q, s->k, kv_dim, head_size);
+    CUDA_CHECK(cudaGetLastError());
 }
 
 /**
@@ -172,7 +187,7 @@ void RoPE_rotation(int pos, RunState *s, int dim, int kv_dim, int head_size) {
  * @param size The size of the arrays.
  */
 __global__ 
-void accum_kernel(float *a, float *b, int size) {
+void element_wise_add_kernel(float *a, float *b, int size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         a[i] += b[i];
@@ -185,9 +200,9 @@ void accum_kernel(float *a, float *b, int size) {
  * @param b The second array.
  * @param size The size of the arrays.
  */
-void accum(float *a, float *b, int size) {
-    int num_threads_small = 256; // You might want to define this as a constant
-    accum_kernel<<<divUp(size, num_threads_small), num_threads_small>>>(a, b, size);
+void element_wise_add(float *a, float *b, int size) {
+    int num_threads_small = 256;
+    element_wise_add_kernel<<<divUp(size, num_threads_small), num_threads_small>>>(a, b, size);
 }
 
 /**

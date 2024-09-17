@@ -25,20 +25,24 @@ typedef struct {
     float *wcls;
 } TransformerWeights;
 
-// Run state structure
+// Combine key and value caches into a single structure
+typedef struct {
+    float *key;
+    float *value;
+} KVCache;
+
+// Update RunState structure
 typedef struct {
     float *x;
     float *xb;
     float *xb2;
     float *hb;
+    float *hb2;
     float *q;
-    float *k;
-    float *v;
     float *att;
     float *logits_gpu;
     float *logits;
-    float *key_cache;
-    float *value_cache;
+    KVCache *kv_cache;
 } RunState;
 
 // Transformer structure

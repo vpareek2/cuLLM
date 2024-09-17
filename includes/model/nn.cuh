@@ -32,8 +32,8 @@ void swiglu_kernel(float *out, float *x, float *w1, float *w2, float *b1, float 
 void swiglu(RunState *s, int hidden_dim, int ffn_dim);
 
 __global__ 
-void accum_kernel(float *a, float *b, int size);
-void accum(float *a, float *b, int size);
+void element_wise_add_kernel(float *a, float *b, int size);
+void element_wise_add(float *a, float *b, int size);
 
 // cuBLAS handle management
 void create_cublas_handle();

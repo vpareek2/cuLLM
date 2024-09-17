@@ -9,26 +9,29 @@
  * @param t The Transformer structure to be built.
  * @param checkpoint_path The path to the checkpoint file.
  * @param num_kv_heads The number of key-value heads, for GQA.
- */ 
+ * @return void
+ */
 void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads) {
-    // Open the checkpoint file
-    FILE *file = fopen(checkpoint_path, "rb");
-    if (!file) { fprintf(stderr, "Couldn't open file %s\n", checkpoint_path); exit(EXIT_FAILURE); }
+    // Combine file operations
+    int fd = open(checkpoint_path, O_RDONLY);
+    if (fd == -1) { 
+        fprintf(stderr, "Failed to open file %s\n", checkpoint_path); 
+        exit(EXIT_FAILURE); 
+    }
     
-    // Read the configuration from the file
-    if (fread(&t->config, sizeof(Config), 1, file) != 1) { exit(EXIT_FAILURE); }
-    fclose(file);
-
+    t->file_size = lseek(fd, 0, SEEK_END);
+    t->data = (float*)mmap(NULL, t->file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (t->data == MAP_FAILED) { 
+        fprintf(stderr, "mmap failed\n"); 
+        close(fd);
+        exit(EXIT_FAILURE); 
+    }
+    
+    memcpy(&t->config, t->data, sizeof(Config));
+    
     // Set the number of key-value heads
     t->num_kv_heads = num_kv_heads;
 
-    // Memory map the checkpoint file
-    t->fd = open(checkpoint_path, O_RDONLY);
-    if (t->fd == -1) { fprintf(stderr, "open failed\n"); exit(EXIT_FAILURE); }
-    t->file_size = lseek(t->fd, 0, SEEK_END);
-    t->data = (float*)mmap(NULL, t->file_size, PROT_READ, MAP_PRIVATE, t->fd, 0);
-    if (t->data == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); exit(EXIT_FAILURE); }
-    
     // Point to the start of the weights in the mapped memory
     float* weights_ptr = t->data + sizeof(Config) / sizeof(float);
 
@@ -42,6 +45,7 @@ void build_transformer(Transformer *t, char *checkpoint_path, int num_kv_heads) 
 /**
  * @brief Frees the Transformer architecture.
  * @param t The Transformer structure to be freed.
+ * @return void
  */
 void free_transformer(Transformer *t) {
     // Unmap the memory-mapped file if it exists
@@ -59,7 +63,7 @@ void free_transformer(Transformer *t) {
  * @param token The token to be processed.
  * @param pos The position of the token in the sequence.
  * @return The logits of the token.
- */ 
+ */
 float* forward(Transformer *transformer, int token, int pos) {
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
@@ -95,7 +99,7 @@ float* forward(Transformer *transformer, int token, int pos) {
         matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
         // Residual connection
-        accum(x, s->xb2, dim);
+        element_wise_add(x, s->xb2, dim);
 
         // Layer normalization before feed-forward network
         rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
@@ -108,7 +112,7 @@ float* forward(Transformer *transformer, int token, int pos) {
         matmul(s->xb, s->hb, w->w2 + l*dim*p->hidden_dim, p->hidden_dim, dim);
 
         // Residual connection
-        accum(x, s->xb, dim);
+        element_wise_add(x, s->xb, dim);
     }
 
     // Final layer normalization
@@ -124,27 +128,36 @@ float* forward(Transformer *transformer, int token, int pos) {
  * @brief Allocates the RunState buffers.
  * @param s The RunState structure to be allocated.
  * @param p The Config structure.
- */ 
+ * @return void
+ */
 void malloc_run_state(RunState *s, Config *p) {
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
     
-    // Allocate memory for various tensors used in the forward pass
-    CUDA_CHECK(cudaMalloc((void **) &s->x, p->dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->xb, p->dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->xb2, p->dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->hb, p->hidden_dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->hb2, p->hidden_dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->q, p->dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->key_cache, p->n_layers * p->max_seq_len * kv_dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->value_cache, p->n_layers * p->max_seq_len * kv_dim * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->att, p->n_heads * p->max_seq_len * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void **) &s->logits_gpu, p->vocab_size * sizeof(float)));
-    s->logits = (float *) calloc(p->vocab_size, sizeof(float));
-
-    // Check if all allocations were successful
-    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
-        || !s->key_cache || !s->value_cache || !s->att || !s->logits_gpu || !s->logits) {
-        fprintf(stderr, "cudaMalloc failed!\n");
+    // Use a single cudaMalloc call for all GPU memory
+    size_t total_size = (p->dim * 3 + p->hidden_dim * 2 + p->dim + 
+                         p->n_layers * p->max_seq_len * kv_dim * 2 + 
+                         p->n_heads * p->max_seq_len + p->vocab_size) * sizeof(float);
+    
+    float *gpu_memory;
+    CUDA_CHECK(cudaMalloc((void **)&gpu_memory, total_size));
+    
+    // Assign pointers
+    s->x = gpu_memory;
+    s->xb = s->x + p->dim;
+    s->xb2 = s->xb + p->dim;
+    s->hb = s->xb2 + p->dim;
+    s->hb2 = s->hb + p->hidden_dim;
+    s->q = s->hb2 + p->hidden_dim;
+    s->key_cache = s->q + p->dim;
+    s->value_cache = s->key_cache + p->n_layers * p->max_seq_len * kv_dim;
+    s->att = s->value_cache + p->n_layers * p->max_seq_len * kv_dim;
+    s->logits_gpu = s->att + p->n_heads * p->max_seq_len;
+    
+    s->logits = (float *)malloc(p->vocab_size * sizeof(float));
+    
+    if (!s->logits) {
+        fprintf(stderr, "malloc failed!\n");
+        cudaFree(gpu_memory);
         exit(EXIT_FAILURE);
     }
 }
@@ -152,21 +165,11 @@ void malloc_run_state(RunState *s, Config *p) {
 /**
  * @brief Frees the RunState buffers.
  * @param s The RunState structure to be freed.
+ * @return void
  */
 void free_run_state(RunState *s) {
-    // Free all allocated GPU memory
-    CUDA_CHECK(cudaFree(s->x));
-    CUDA_CHECK(cudaFree(s->xb));
-    CUDA_CHECK(cudaFree(s->xb2));
-    CUDA_CHECK(cudaFree(s->hb));
-    CUDA_CHECK(cudaFree(s->hb2));
-    CUDA_CHECK(cudaFree(s->q));
-    CUDA_CHECK(cudaFree(s->att));
-    CUDA_CHECK(cudaFree(s->logits_gpu));
-    CUDA_CHECK(cudaFree(s->key_cache));
-    CUDA_CHECK(cudaFree(s->value_cache));
-    
-    // Free CPU memory
+    // Free all GPU memory at once
+    cudaFree(s->x);
     free(s->logits);
 }
 
@@ -176,6 +179,7 @@ void free_run_state(RunState *s) {
  * @param p The Config structure.
  * @param ptr The pointer to the weights.
  * @param shared_weights Whether the weights are shared.
+ * @return void
  */
 void memory_map_weights(TransformerWeights *w, Config *p, float *ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
